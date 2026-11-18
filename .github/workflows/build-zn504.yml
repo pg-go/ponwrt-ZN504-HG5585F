@@ -1,4 +1,4 @@
-name: Build PonWrt (ZN504XG-D & HG5585F)
+name: Build PonWrt HG5585F CT (Pig-1)
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ env:
 
 jobs:
   build:
-    name: Build ZN504XG-D & HG5585F
+    name: Build HG5585F CT (Pig-1)
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -97,7 +97,7 @@ jobs:
             ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-
             ponwrt-ccache-zn504-
 
-      - name: Configure for ZN504XG-D
+      - name: Configure for HG5585F CT (Pig-1)
         run: |
           ./scripts/kconfig.pl + \
             configs/an7581.config \
@@ -145,7 +145,7 @@ jobs:
       - name: Upload Firmware Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PonWrt-ZN504-HG5585F-enhanced-firmware
+          name: PonWrt-HG5585F-CT-Pig-1-firmware
           path: output/*
           retention-days: 14
 
@@ -162,28 +162,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: PonWrt ZN504XG-D & HG5585F 聚合增强固件 (${{ steps.tag.outputs.release_tag }})
+          name: PonWrt HG5585F CT (Pig-1) (${{ steps.tag.outputs.release_tag }})
           body: |
-            ## 🌟 相比前一版本（v2026.11.17-0850）的核心更新与变化
+            ## Pig-1（FiberHome HG5585F CT 专用，基于 Moto-4）
 
-            ### 1. 内核 eBPF CO-RE 与 BTF 类型信息闭环（Linux 6.18）
-            - **完整启用内核与模块 BTF 支持**：
-              - 在 `target/linux/airoha/an7581/config-6.18`、`an7583/config-6.18` 与构建配置中开启 `CONFIG_DEBUG_INFO_BTF=y`、`CONFIG_DEBUG_INFO_BTF_MODULES=y` 及 `CONFIG_BPF_EVENTS=y`，并在 CI 构建链路中集成 `dwarves`（`pahole`）。
-              - 固件原生生成 `/sys/kernel/btf/vmlinux` 与内核模块 BTF 段，开箱支持 `honk` / `dae` 等基于 eBPF CO-RE 的透明代理程序运行。
+            ### 上游基线更新
+            - **内核 BTF 已进上游**：`CONFIG_KERNEL_DEBUG_INFO_BTF=y` 等写进 release.config。
+            - **AN4475-G2 新机型支持**：上游新增，本分支只编 CT，已在 release.config 里关掉其余 12 个机型。
+            - **FullCone NAT + NTP 重定向**：防火墙默认 FullCone；内网 UDP 123 校时重定向到本机 NTP。
+            - **RTL8221B LED、低延迟抢占（250Hz + PREEMPT）、PPE 补丁 931+932**：上游原样保留。
 
-            ### 2. 上游核心驱动与硬件卸载修复集成（源自 `pbs05/ponwrt`）
-            - **桥接流表与 PPE 硬件卸载保护 TTL / IPv6 Hop Limit（PR #82）**：
-              - 合入 `951-01-netfilter-preserve-bridge-fastpath-hop-limits.patch` 与 `951-02-net-airoha-preserve-bridge-ttl.patch`。
-              - 在内核 `nf_flowtable` 与达发 `airoha_ppe` 驱动中区分二层桥接流与三层路由流，禁止硬件流表对 L2 桥接报文错误递减 IPv4 TTL 与 IPv6 Hop Limit，根治开启硬件流卸载后内网 IPv6 异常及 VLAN 桥接（如 IPTV）跳数被误扣的问题。
-            - **AN7581 LAN/WAN 16K SRAM 动态拥塞门限初始化（PR #64）**：
-              - 合入 `947-net-airoha-initialize-lan-sram-congestion.patch` 与 `947-net-airoha-initialize-wan-sram-congestion.patch`。
-              - 为 AN7581 QDMA0 16K SRAM 描述符池初始化官方 SDK 拥塞丢包阈值曲线并激活 250us 硬件动态重算，消除 2.5G 突发至 1G 网口或高并发连接骤停瞬间的硬件队列尾丢包（`P0 CDM1` 拥塞丢包）。
-            - **达发 NPU 固件缓存信息与 IPv6 元数据解析（PR #72）**：
-              - 合入 `941-01-net-airoha-npu-expose-cached-firmware-info.patch` 与 `941-02-net-airoha-decode-ipv6-smac-metadata.patch`，通过 sysfs 暴露只读 NPU 固件版本及核心拓扑，增强 IPv6 硬件转发诊断能力。
-            - **清理失效 APK 软件仓库源（PR #116）**：
-              - 在 `an7581.config` / `an7583.config` 中禁用官方未提供索引的 `video`、`pon_drivers`、`pon_userspace` 源，消除运行 `apk update` 时的 404 报错。
+            ### Pig 定制（与 Moto-4 的区别）
+            - **主题只留 Aurora**：去 ttyd、footstrap、argon、bootstrap、ddns；Vantage 已去掉。
+            - **代理用 Homi，不用 honk**：honk 四件套已去掉，**Homi 三件套（mihomo + homi + luci-app-homi）在**；sing-box 保留。
+            - **自带软件**：EasyTier、NetPath 仪表盘、Harbor 文件管理、DUFS（5006）、NATMap、UPnP、USB 网卡驱动、ntfs3。
+            - **USB 3.0 + USB2 灯**：CT 的 USB2 口已焊 USB 3.0 座子，DTS 的 usb0 超速锁已删（硬盘应跑 5000M）；01_leds 已补 USB 2 灯；release.config 已加 `CONFIG_PACKAGE_kmod-usb-ledtrig-usbport=y`。
+            - **网络/LAN**：LAN 172.16.9.1/24，lan1 不改 WAN、仍是 LAN 口，WiFi Pig/Pig_5G。
 
-            ### 3. 网络热插拔脚本纯净化
-            - **还原 `98-pppoe-rps` 纯净职责**：
-              - 移除 `/etc/hotplug.d/net/98-pppoe-rps` 中额外附加的硬编码 BT/P2P 端口绕过规则，仅保留核心网卡队列 RPS 多核软中断均衡配置。
+            ### 刷机
+            - 用 LuCI 备份/升级刷 `*-fiberhome_hg5585f-ct-squashfs-sysupgrade.itb`；首次刷建议不保留配置。
+            - 刷后验证：`lsusb -t` 硬盘应在 5000M；`lsmod | grep ledtrig` 应有 ledtrig_usbport；两 USB 灯亮。
           files: output/*
