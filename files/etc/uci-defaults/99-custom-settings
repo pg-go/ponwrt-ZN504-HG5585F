@@ -25,10 +25,12 @@ if ! uci -q get firewall.@zone[1].network | grep -qw 'wan_6'; then
 fi
 
 
-# 1.2 预置 LuCI 默认主题为 Vantage 主题（并注册主题列表）
+# 1.2 预置 LuCI 默认主题为 Aurora 主题（并注册主题列表）
+# 注意：上游默认是 Vantage，但本分支只装 Aurora（见 release.config），
+# 99-custom-settings 在 97-custom-init 之后跑，必须改成 Aurora，否则首次启动后主题会被改回不存在的 Vantage。
 uci -q batch <<EOF
-set luci.themes.Vantage='/luci-static/vantage'
-set luci.main.mediaurlbase='/luci-static/vantage'
+set luci.themes.Aurora='/luci-static/aurora'
+set luci.main.mediaurlbase='/luci-static/aurora'
 commit luci
 EOF
 
