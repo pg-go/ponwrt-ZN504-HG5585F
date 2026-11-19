@@ -1,4 +1,4 @@
-name: Build PonWrt (ZN504XG-D & HG5585F)
+name: Build PonWrt HG5585F CT (Moto-6)
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ env:
 
 jobs:
   build:
-    name: Build ZN504XG-D & HG5585F
+    name: Build HG5585F CT (Moto-6)
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -97,7 +97,7 @@ jobs:
             ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-
             ponwrt-ccache-zn504-
 
-      - name: Configure for ZN504XG-D
+      - name: Configure for HG5585F CT (Moto-6)
         run: |
           ./scripts/kconfig.pl + \
             configs/an7581.config \
@@ -145,7 +145,7 @@ jobs:
       - name: Upload Firmware Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PonWrt-ZN504-HG5585F-enhanced-firmware
+          name: PonWrt-HG5585F-CT-Moto-6-firmware
           path: output/*
           retention-days: 14
 
@@ -162,35 +162,34 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: PonWrt ZN504XG-D & HG5585F 聚合增强固件 (${{ steps.tag.outputs.release_tag }})
+          name: PonWrt HG5585F CT (Moto-6) 聚合增强固件 (${{ steps.tag.outputs.release_tag }})
           body: |
-            ## 🌟 相比前一版本（v2026.11.17-2012）的核心更新与变化
+            ## PonWrt HG5585F CT (Moto-6) 定制固件
+            基于上游最新底包（FullCone 2 + Tailscale 1.104.7），只编 fiberhome_hg5585f-ct 一个机型。
 
-            ### 1. 全面引入 Broadcom FullCone 2 支持（全功能 NAT1 / 游戏联机体验跃升）
-            - **内核 6.18、libnftnl、nftables 与 firewall4 全链路打通**：
-              - 在 Linux 6.18 内核、底层数据包库 `libnftnl`、规则管理工具 `nftables` 以及 OpenWrt 核心防火墙 `firewall4` 中，完整集成并适配 Broadcom FullCone 2 架构支持。
-              - **硬件卸载无冲突共存**：针对 `firewall4` 专门增加全功能 FullCone 2 模式，彻底攻克了传统 FullCone NAT 补丁与 Airoha / MediaTek 硬件流卸载（PPE / Hardware Flow Offloading）共存时的规则覆写、丢包与状态不一致缺陷。
-              - **实测收益**：局域网内 PC、PS5、Xbox、Switch 等游戏主机及 P2P / BT 客户端稳定达成 **NAT1 (Full Cone)**，大幅提升 UDP 打洞成功率，显著降低多人联机游戏延迟与对战连接阻断。
+            ### 代理：Homi 单核（honk/sing-box 已去掉）
+            - **Homi**（mihomo 内核 + homi 服务 + luci-app-homi 界面，面板默认 zashboard）：接管全部代理。
+            - **honk、sing-box、v2ray-geoip/geosite 已去掉**（Moto-5 起的决定，Moto-6 沿用）。
+            - **Tailscale 未编入**（上游新加的 Mesh VPN，Moto 没要；要的话说一声再加）。
 
-            ### 2. 固件极致瘦身与动态核心解耦（ROM 释放 64MB sing-box + 30MB honk 核心，按需动态拉取）
-            - **全面剔除固件只读内置的 `sing-box` 与 `honk-core` 静态二进制**：
-              - 固件 ROM 镜像直接瘦身超 **30MB+**（解压缩后等效释放近 **100MB** Flash 空间），彻底根除小存储设备升级空间告急的痛点，杜绝“只读 ROM 占一份、在线升级写 Overlay 又占一份”的闪存双重浪费。
-            - **解耦核心更新与固件更新（零刷机秒级换代）**：
-              - 固件完整固化不可替代的硬核底层运行环境（Linux 6.18 内核 BTF `/sys/kernel/btf/vmlinux`、`kmod-bpf`、`kmod-sched-core`、`kmod-nft-queue`、`kmod-tun` 等核心模块）与 UCI/procd 服务骨架。
-              - 用户态核心转由内置的通用 `honk-install` 助手按需拉取（支持多镜像动态测速回退，刷机后执行 `honk-install` 即可秒级安装官方最新核心）。
-              - `/etc/sysupgrade.conf` 自动将 `/usr/bin/honk-core` 纳入系统备份白名单，后续固件升级自动无感保留，无需重复下载。
-            - **集成最新 Tailscale 1.104.7 稳定版**：
-              - 同步更新 Tailscale 虚拟组网引擎至官方最新的 `1.104.7`，显著提升跨公网打洞成功率与传输吞吐。
+            ### 去掉的
+            - luci-app-ddns、luci-app-ttyd（含中文包）、luci-theme-argon、luci-theme-bootstrap、luci-theme-footstrap；主题只剩 Aurora。
 
-            ### 3. 多核网络软中断与 32-Queue RPS/RFS 深度调优
-            - **32-Queue 多队列软中断均衡（RPS / RFS）**：
-              - 针对 Airoha AN7581 四核 Cortex-A53 架构，全面重构网卡与 PPPoE 虚拟接口的队列调度策略，激活 32 队列 RPS / RFS 多核软中断均衡。
-              - 将大吞吐下行与并发小包均匀打散至 4 个物理核心，彻底根除千兆/2.5G 跑满时软中断积压于单核（Core 0）导致的假死卡顿与丢包。
-            - **达发 PPE 硬件流表绑定速率与 sysctl 缓冲优化**：
-              - 调优 PPE 硬件流表绑定速率（`bind_rate`）与内核套接字缓冲阈值，兼顾高并发会话快速接入硬件加速与超大带宽吞吐下的内存防碎片。
+            ### 加上的（Moto 定制）
+            - EasyTier、NetPath、Harbor、DUFS、NATMap、UPnP、openssh-sftp-server、jq、USB 上网卡驱动、kmod-fs-ntfs3、kmod-inet-diag。
+            - USB 3.0 移动硬盘（DUFS 用）：kmod-usb-core、kmod-usb3、kmod-usb-xhci-hcd、kmod-usb-xhci-mtk、kmod-usb-storage、kmod-usb-storage-uas、kmod-scsi-core、block-mount、kmod-fs-ext4/vfat/exfat。
+            - ZRAM（zram-swap + kmod-zram，99 里 256MB zstd）。
 
-            ### 4. CI/CD 构建流水线与 Firewall4 补丁闭环修复
-            - **精准适配 OpenWrt 24.10 提交（`e6f600c4`）**：
-              - 修正 `firewall4` 针对 OpenWrt 最新源码提交的代码上下文偏移量与行数计数，彻底清理 CI 流水线中外部冗余覆盖步骤，杜绝了 `firewall.rej` 的编译中断缺陷。
-              - GitHub Actions 每日/触发构建成功率提升至 100%，持续保障 **兆能 ZN504XG-D** 与 **烽火 HG5585F 电信版** 双旗舰固件的高质稳定交付。
+            ### 首次启动
+            - LAN：`172.16.6.1/24`；Wi-Fi：Moto / Moto_5G（国家代码 CN，5G 默认 HE160）；lan1 已改为 wan1（dhcp）+ wan1_6（dhcpv6），进 wan 防火墙区；pon0 不动。
+            - 主题 Aurora；主机名 Moto。
+            - fstab anon_mount='1'（自动挂载未配置的磁盘分区）。
+
+            ### 保留的上游特性
+            - FullCone 2（Broadcom 内核级，配合 PPE 硬件流卸载）；PPE 硬件流卸载（补丁 931 + 932）；IPTV br-iptv / rtp2httpd 4022；airoha-npu、tempinfo、pin-wifi-cpus、cpufreq / diskman / hqos / coremark / htop / yq；16MB TCP 缓冲 + NOTRACK；ZRAM 256MB 04:30；Asia/Shanghai。
+            - USB 3.0 + USB2 灯：CT 的 USB2 口已焊 USB 3.0 座子，DTS 的 usb0 超速锁已删（硬盘应跑 5000M）；01_leds 已补 USB 2 灯；release.config 已加 `CONFIG_PACKAGE_kmod-usb-ledtrig-usbport=y`。注意：USB 3.0 灯（blue:usb-2）硬件没接，不亮是正常的；USB 2.0 灯正常。
+
+            ### 刷机
+            - 用 LuCI 备份/升级刷 `*-fiberhome_hg5585f-ct-squashfs-sysupgrade.itb`；首次刷建议不保留配置。
+            - 刷后验证：`lsusb -t` 硬盘应在 5000M；USB 2.0 灯亮；`ls /sys/kernel/btf/vmlinux` 应存在。
           files: output/*
