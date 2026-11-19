@@ -6,7 +6,7 @@ on:
       upload_release:
         description: 'Upload firmware to GitHub Releases'
         required: false
-        default: 'true'
+        default: true
         type: boolean
       cache_mode:
         description: '编译缓存模式 (使用缓存 / 重新编译 / 不使用缓存)'
@@ -88,7 +88,7 @@ jobs:
           bash ./scripts/customize.sh
 
       - name: Restore compiler ccache
-        if: ${{ github.event.inputs.cache_mode || '使用缓存' }} != '不使用缓存'
+        if: (github.event.inputs.cache_mode || '使用缓存') != '不使用缓存'
         uses: actions/cache/restore@v4
         with:
           path: .ccache
@@ -113,20 +113,40 @@ jobs:
       - name: Download package sources
         run: make download -j"$(nproc)"
 
+      - name: Fix firewall4 fullcone patch
+        run: |
+          PATCH_DIR=$(find "$GITHUB_WORKSPACE" -maxdepth 6 -type d -path "*/package/network/config/firewall4/patches" | head -n 1)
+          if [ -z "$PATCH_DIR" ]; then
+            echo "Error: firewall4 patches directory not found!"
+            exit 1
+          fi
+          echo "Found patches dir: $PATCH_DIR"
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/immortalwrt/immortalwrt.git /tmp/immortalwrt
+          git -C /tmp/immortalwrt sparse-checkout set package/network/config/firewall4/patches
+          NEW_PATCH=$(find /tmp/immortalwrt/package/network/config/firewall4/patches -maxdepth 1 -name "*fullcone*.patch" | head -n 1)
+          if [ -z "$NEW_PATCH" ]; then
+            echo "Error: fullcone patch not found in immortalwrt!"
+            exit 1
+          fi
+          rm -f "$PATCH_DIR"/*fullcone*.patch
+          cp -f "$NEW_PATCH" "$PATCH_DIR/"
+          ls -la "$PATCH_DIR"
+          rm -rf /tmp/immortalwrt
+
       - name: Compile firmware
         run: |
           [ -x staging_dir/host/bin/ccache ] && CCACHE_DIR=$PWD/.ccache staging_dir/host/bin/ccache -z || true
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Save compiler ccache
-        if: always() && (${{ github.event.inputs.cache_mode || '使用缓存' }} != '不使用缓存')
+        if: always() && ((github.event.inputs.cache_mode || '使用缓存') != '不使用缓存')
         uses: actions/cache/save@v4
         with:
           path: .ccache
           key: ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-${{ github.sha }}
 
       - name: Show compiler cache statistics
-        if: always() && (${{ github.event.inputs.cache_mode || '使用缓存' }} != '不使用缓存')
+        if: always() && ((github.event.inputs.cache_mode || '使用缓存') != '不使用缓存')
         run: |
           [ -x staging_dir/host/bin/ccache ] && CCACHE_DIR=$PWD/.ccache staging_dir/host/bin/ccache -s || true
 
