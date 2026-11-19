@@ -60,6 +60,9 @@ setup_wifi() { # $1:频段 $2:期望device $3:期望iface $4:信道 $5:SSID
 	if [ -z "$iface" ]; then log "未找到 $dev 的 wifi-iface，跳过"; return 0; fi
 	uci set "wireless.$dev.channel=$ch"
 	uci set "wireless.$dev.country='CN'"
+	if [ "$band" = "5g" ]; then
+		uci set "wireless.$dev.htmode='HE160'"
+	fi
 	uci set "wireless.$dev.disabled=0"
 	uci set "wireless.$iface.ssid=$ssid"
 	uci set "wireless.$iface.encryption=psk2"
