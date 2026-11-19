@@ -61,7 +61,7 @@ setup_wifi() { # $1:频段 $2:期望device $3:期望iface $4:信道 $5:SSID
 	uci set "wireless.$dev.channel=$ch"
 	uci set "wireless.$dev.country='CN'"
 	if [ "$band" = "5g" ]; then
-		uci set "wireless.$dev.htmode='HE160'"
+		uci set "wireless.$dev.htmode='HE80'"
 	fi
 	uci set "wireless.$dev.disabled=0"
 	uci set "wireless.$iface.ssid=$ssid"
