@@ -1,0 +1,243 @@
+#!/bin/sh
+# 97-custom-init — 首次开机初始化（uci-defaults，成功执行后自动删除，仅运行一次）
+#
+# 内容：[1] 2.4G/5G WiFi（SSID + WPA2 密钥）→ [2] 清 IPv6 ULA / 关 packet steering →
+#       [3] lan1~lan4 随机 MAC → [4] LAN IP 改为 172.16.6.1/24 → [5] lan1 改作 WAN →
+#       [6] wan1/wan1_6 进 wan zone → [7] LuCI 默认主题设为 Aurora → [8] 自动挂载未配置的磁盘分区
+#
+# ⚠ 含 WiFi 密钥：本仓库是公开 fork，密钥会明文躺在仓库里，请自行评估。
+#    如介意可把下面的 WIFI_KEY 改成占位符，刷机后进 LuCI 再改。
+#
+# 说明：无线 section 名直接使用 radio0（2.4G）/ radio1（5G）
+#      （2026-10-22 已在本机实测确认）。若将来 section 名有变化，
+#       脚本仍会按频段（2g/5g）自动定位兜底；wifi-device 默认是
+#       disabled 的，这里会一并打开，否则配了 SSID 也不会广播。
+
+# ---------------- 可调参数 ----------------
+WIFI_24_SSID='Moto'
+WIFI_5_SSID='Moto_5G'
+WIFI_KEY='arzin1122'
+WIFI_24_CHANNEL='1'
+WIFI_5_CHANNEL='36'
+WIFI_24_DEV='radio0';         WIFI_24_IFACE='default_radio0'   # 2.4G
+WIFI_5_DEV='radio1';          WIFI_5_IFACE='default_radio1'    # 5G
+# ------------------------------------------
+
+log() { logger -t custom-init "$@"; }
+
+echo "=== [1/8] 正在配置 2.4G 与 5G Wi-Fi ==="
+
+# 按频段找 wifi-device（兼容新旧两种命名）
+find_radio() { # $1: 2g|5g → 输出 device 名
+	local want="$1" d b h
+	for d in $(uci -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([A-Za-z0-9_-]*\)=wifi-device$/\1/p'); do
+		b="$(uci -q get wireless.$d.band 2>/dev/null)"
+		h="$(uci -q get wireless.$d.hwmode 2>/dev/null)"
+		if [ "$want" = "5g" ]; then
+			{ [ "$b" = "5g" ] || { [ -z "$b" ] && [ "$h" = "11a" ]; }; } && { echo "$d"; return 0; }
+		else
+			{ [ "$b" = "2g" ] || { [ -z "$b" ] && [ "$h" = "11g" ]; }; } && { echo "$d"; return 0; }
+		fi
+	done
+	return 1
+}
+
+# 找某个 device 下的第一个 wifi-iface
+find_iface() { # $1: device 名 → 输出 iface 名
+	local dev="$1" i
+	for i in $(uci -q show wireless 2>/dev/null | sed -n 's/^wireless\.\([A-Za-z0-9_-]*\)=wifi-iface$/\1/p'); do
+		[ "$(uci -q get wireless.$i.device 2>/dev/null)" = "$dev" ] && { echo "$i"; return 0; }
+	done
+	return 1
+}
+
+setup_wifi() { # $1:频段 $2:期望device $3:期望iface $4:信道 $5:SSID
+	local band="$1" dev="$2" iface="$3" ch="$4" ssid="$5"
+	uci -q get "wireless.$dev" >/dev/null 2>&1 || dev="$(find_radio "$band")"
+	if [ -z "$dev" ]; then log "未找到 $band radio，跳过"; return 0; fi
+	uci -q get "wireless.$iface" >/dev/null 2>&1 || iface="$(find_iface "$dev")"
+	if [ -z "$iface" ]; then log "未找到 $dev 的 wifi-iface，跳过"; return 0; fi
+	uci set "wireless.$dev.channel=$ch"
+	uci set "wireless.$dev.country='CN'"
+	if [ "$band" = "5g" ]; then
+		uci set "wireless.$dev.htmode='HE160'"
+	fi
+	uci set "wireless.$dev.disabled=0"
+	uci set "wireless.$iface.ssid=$ssid"
+	uci set "wireless.$iface.encryption=psk2"
+	uci set "wireless.$iface.key=$WIFI_KEY"
+	log "WiFi($band): $dev/$iface → SSID=$ssid ch=$ch"
+}
+
+# /etc/config/wireless 可能尚未生成，没有就先生成
+if [ ! -f /etc/config/wireless ]; then
+	command -v wifi >/dev/null 2>&1 && wifi config >/dev/null 2>&1
+fi
+if [ -f /etc/config/wireless ]; then
+	setup_wifi 2g "$WIFI_24_DEV" "$WIFI_24_IFACE" "$WIFI_24_CHANNEL" "$WIFI_24_SSID"
+	setup_wifi 5g "$WIFI_5_DEV"  "$WIFI_5_IFACE"  "$WIFI_5_CHANNEL"  "$WIFI_5_SSID"
+	uci commit wireless
+else
+	log "未找到 /etc/config/wireless，跳过 WiFi 配置"
+fi
+
+echo "=== [2/8] 正在清空 IPv6 ULA 前缀并禁用数据包引导 ==="
+rm -f /etc/uci-defaults/*network-generate-ula* /rom/etc/uci-defaults/*network-generate-ula* 2>/dev/null
+sed -i "/ula_prefix/d" /etc/config/network
+sed -i "/packet_steering/d" /etc/config/network
+uci set network.globals.ula_prefix=''
+uci set network.globals.packet_steering='0'
+uci commit network
+
+for rps in /sys/class/net/*/queues/rx-*/rps_cpus; do echo 0 > "$rps" 2>/dev/null; done
+for xps in /sys/class/net/*/queues/tx-*/xps_cpus; do echo 0 > "$xps" 2>/dev/null; done
+
+echo "=== [3/8] 正在生成并校验 lan1~lan4 随机 MAC 地址 ==="
+# 1. 获取 lan1 的原 MAC 地址（若不存在则回退读取 br-lan）
+orig_mac=$(cat /sys/class/net/lan1/address 2>/dev/null)
+[ -z "$orig_mac" ] && orig_mac=$(cat /sys/class/net/br-lan/address 2>/dev/null)
+
+# 提取前4组并转为大写 (例如 68:DE:CE:4B)
+prefix=$(echo "$orig_mac" | awk -F: '{print toupper($1":"$2":"$3":"$4)}')
+
+# 检查前缀格式是否合理，且第一字节必须为单播地址(不能是组播奇数)
+first_byte_dec=$(printf "%d" "0x$(echo "$prefix" | cut -d: -f1)" 2>/dev/null || echo 1)
+if echo "$prefix" | grep -qE '^[0-9A-F]{2}(:[0-9A-F]{2}){3}$' && [ $((first_byte_dec % 2)) -eq 0 ] && [ "$prefix" != "00:00:00:00" ]; then
+    echo "检测到合法的 MAC 前缀: $prefix"
+    mac_list=""
+    valid_count=0
+
+    for port in lan1 lan2 lan3 lan4; do
+        while true; do
+            # 从 /dev/urandom 生成 2 个随机字节并格式化为 XX:XX
+            b5=$(dd if=/dev/urandom bs=1 count=1 2>/dev/null | hexdump -ve '1/1 "%02X"')
+            b6=$(dd if=/dev/urandom bs=1 count=1 2>/dev/null | hexdump -ve '1/1 "%02X"')
+
+            # 排除全0和全FF的无效后缀
+            [ "$b5$b6" = "0000" ] || [ "$b5$b6" = "FFFF" ] && continue
+
+            new_mac="${prefix}:${b5}:${b6}"
+
+            # 检查生成的完整 MAC 格式合理性，且不与已生成的 MAC 重复
+            if echo "$new_mac" | grep -qE '^([0-9A-F]{2}:){5}[0-9A-F]{2}$'; then
+                if ! echo "$mac_list" | grep -q "$new_mac"; then
+                    mac_list="$mac_list $new_mac"
+                    eval "mac_${port}='$new_mac'"
+                    valid_count=$((valid_count + 1))
+                    break
+                fi
+            fi
+        done
+    done
+
+    # 确认 4 个端口的 MAC 均生成完毕且无误后才真正应用
+    if [ "$valid_count" -eq 4 ]; then
+        echo "校验通过！即将应用以下不重复的 MAC 地址："
+        for port in lan1 lan2 lan3 lan4; do
+            eval "target_mac=\$mac_${port}"
+            echo "  -> $port : $target_mac"
+
+            # 查找 /etc/config/network 中是否已有对应端口的 config device 节点
+            dev_sec=$(uci show network | grep -E "network\.@?device.*name='$port'" | cut -d. -f2 | head -n 1)
+            if [ -n "$dev_sec" ]; then
+                uci set network.$dev_sec.macaddr="$target_mac"
+            else
+                uci set network.dev_${port}='device'
+                uci set network.dev_${port}.name="$port"
+                uci set network.dev_${port}.macaddr="$target_mac"
+            fi
+        done
+        uci commit network
+    else
+        echo "错误：生成的 MAC 数量异常，跳过应用！"
+    fi
+else
+    echo "错误：读取到的 lan1 MAC 前缀 ($prefix) 不合理，为保障安全已跳过修改！"
+fi
+
+echo "=== [4/8] 正在将 LAN IP 修改为 $LAN_IP ==="
+LAN_IP='172.16.6.1'
+LAN_NETMASK='255.255.255.0'
+uci set network.lan.ipaddr="$LAN_IP"
+uci set network.lan.netmask="$LAN_NETMASK"
+uci commit network
+uci set system.@system[0].hostname='Moto'
+uci commit system
+log "主机名已设为 Moto"
+
+echo "=== [5/8] 正在把 lan1 从 br-lan 移出并新建 wan1/wan1_6 ==="
+# 1) 从 br-lan 的端口列表里去掉 lan1（兼容 list 型 ports 与字符串型 ports）
+brsec=$(uci show network 2>/dev/null | grep -E "network\.@?device[^.]*\.name='br-lan'" | cut -d. -f2 | head -n 1)
+if [ -n "$brsec" ]; then
+    uci del_list network.$brsec.ports='lan1' 2>/dev/null
+    # 字符串型 ports 时 del_list 无效，再用字符串方式去掉（先把换行统一成空格）
+    ports=$(uci get network.$brsec.ports 2>/dev/null | tr '\n' ' ')
+    case " $ports " in
+        *" lan1 "*)
+            newports=""
+            for p in $ports; do [ "$p" != "lan1" ] && newports="$newports $p"; done
+            uci set network.$brsec.ports="$(echo $newports)"
+            ;;
+    esac
+fi
+# 旧式 lan 接口 ifname 型（lan 直接挂 ifname、无独立 br-lan device 段时）
+ifname=$(uci get network.lan.ifname 2>/dev/null | tr '\n' ' ')
+case " $ifname " in
+    *" lan1 "*)
+        newif=""
+        for p in $ifname; do [ "$p" != "lan1" ] && newif="$newif $p"; done
+        uci set network.lan.ifname="$(echo $newif)"
+        ;;
+esac
+# 2) 新建 wan1（IPv4 DHCP）与 wan1_6（IPv6 DHCPv6），设备均为 lan1；原 pon0 的 wan 不动
+uci set network.wan1='interface'
+uci set network.wan1.device='lan1'
+uci set network.wan1.proto='dhcp'
+uci set network.wan1_6='interface'
+uci set network.wan1_6.device='lan1'
+uci set network.wan1_6.proto='dhcpv6'
+uci commit network
+# 注意：lan1 灯不改监听——netdev 触发器监听的是网卡名（lan1），wan1 只是逻辑接口名、
+# ip link 里根本没有 wan1 这个设备，改过去灯永远等不到链路（2026-11-18 实测教训）。
+# 且实测 blue:lan-1 写 brightness=1（触发器关掉后）也不亮，说明这颗灯的 GPIO 通路
+# 本身有问题（疑似 CT 板 lan1 灯由交换芯片驱动，脱离 br-lan 后就不推了），不是 dev 名字问题。
+
+echo "=== [6/8] 正在把 wan1 与 wan1_6 加进防火墙 wan zone ==="
+# 找出 name='wan' 的 zone 段（兼容具名与匿名段）
+wanzone=""
+for sec in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\(.*\)=zone$/\1/p'); do
+    [ "$(uci get firewall.$sec.name 2>/dev/null)" = "wan" ] && wanzone="$sec" && break
+done
+if [ -n "$wanzone" ]; then
+    nets=$(uci get firewall.$wanzone.network 2>/dev/null | tr '\n' ' ')
+    case " $nets " in
+        *" wan1 "*) ;;
+        *) uci add_list firewall.$wanzone.network='wan1' ;;
+    esac
+    case " $nets " in
+        *" wan1_6 "*) ;;
+        *) uci add_list firewall.$wanzone.network='wan1_6' ;;
+    esac
+    uci commit firewall
+    log "wan zone($wanzone) 已加 wan1、wan1_6"
+else
+    log "未找到 name='wan' 的防火墙 zone，跳过 wan1/wan1_6 入 zone"
+fi
+
+echo "=== [7/8] 正在把 LuCI 默认主题设为 Aurora ==="
+uci set luci.main.mediaurlbase='/luci-static/aurora' 2>/dev/null
+uci commit luci 2>/dev/null
+log "LuCI 默认主题已设为 Aurora"
+
+echo "=== [8/8] 正在开启自动挂载未配置的磁盘分区 ==="
+# fstab global 段的 anon_mount：LuCI「挂载点」→「自动挂载未配置的磁盘分区」
+# 默认是 0（不勾）；设为 1 后插 U 盘/硬盘会自动挂到 /mnt 下
+uci -q get fstab.@global[0] >/dev/null 2>&1 || uci add fstab global >/dev/null 2>&1
+uci set fstab.@global[0].anon_mount='1'
+uci commit fstab
+log "自动挂载未配置的磁盘分区已开启（fstab anon_mount=1）"
+
+# 让已提交的无线配置立即生效（首启时多为兜底）
+command -v wifi >/dev/null 2>&1 && wifi reload >/dev/null 2>&1 || true
+
+exit 0
