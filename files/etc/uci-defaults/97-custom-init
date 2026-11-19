@@ -162,6 +162,9 @@ LAN_NETMASK='255.255.255.0'
 uci set network.lan.ipaddr="$LAN_IP"
 uci set network.lan.netmask="$LAN_NETMASK"
 uci commit network
+uci set system.@system[0].hostname='Pig'
+uci commit system
+log "主机名已设为 Pig"
 
 
 echo "=== [5/6] 正在把 LuCI 默认主题设为 Aurora ==="
