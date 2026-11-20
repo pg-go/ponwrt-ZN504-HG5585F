@@ -1,0 +1,5 @@
+chain mangle_forward_mss {
+	type filter hook forward priority mangle - 1; policy accept;
+	meta nfproto ipv4 tcp flags & (fin | syn | rst) == syn tcp option maxseg size set 1452
+	meta nfproto ipv6 tcp flags & (fin | syn | rst) == syn tcp option maxseg size set 1412
+}

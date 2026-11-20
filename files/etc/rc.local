@@ -1,0 +1,61 @@
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+# 1. 仅当非 PPPoE 主路由（如作为纯旁路由）且缺失默认路由时才回退 fe80::1
+if [ "$(uci -q get network.wan.proto)" != "pppoe" ] && [ ! -d /sys/class/net/pppoe-wan ]; then
+    if ! ip -6 route show default 2>/dev/null | grep -q 'default'; then
+        ip -6 route replace default via fe80::1 dev br-lan 2>/dev/null
+    fi
+fi
+
+# 2. 重新加载高通量网络缓冲与 IPTV UDP 核心参数
+sysctl -p /etc/sysctl.d/99-custom-net-optimization.conf 2>/dev/null
+
+# 3. 提升核心网桥与网口队列深度为 5000，消除突发高码流丢包
+ip link set br-lan txqueuelen 5000 2>/dev/null
+for dev in lan1 lan2 lan3 lan4 eth1 pon0 phy0-ap0 phy1-ap0; do
+    ip link set "$dev" txqueuelen 5000 2>/dev/null
+done
+
+# 4. 组播侦听与查询优化，保持网桥组播直通（放行 LLDP 0x4000 避免下挂 AP 组播心跳产生 rx_dropped，避免 snooping 拦截 IPv6 NDP 邻居发现与 IPTV 组播）
+echo 0x4000 > /sys/devices/virtual/net/br-lan/bridge/group_fwd_mask 2>/dev/null
+echo 0 > /sys/devices/virtual/net/br-lan/bridge/multicast_snooping 2>/dev/null
+for eth_port in /sys/devices/virtual/net/br-lan/brif/lan* /sys/devices/virtual/net/br-lan/brif/eth* /sys/devices/virtual/net/br-lan/brif/phy*; do
+    [ -d "$eth_port" ] && echo 2 > "$eth_port/multicast_router" 2>/dev/null
+done
+
+# 5. 绑定以太网硬中断与 Wi-Fi 四核收发线程亲和性（IRQ 17->CPU1, IRQ 21->CPU2；mt76-tx->CPU3，napi/phy0-0 打散至 CPU0/1/2）
+echo 1 > /proc/irq/17/smp_affinity_list 2>/dev/null
+echo 2 > /proc/irq/21/smp_affinity_list 2>/dev/null
+[ -x /usr/sbin/pin-wifi-cpus.sh ] && /usr/sbin/pin-wifi-cpus.sh
+
+# 6. 精细化 CPUFreq ondemand 功耗与性能平衡动态调度
+# ondemand: 75%升频门限、驻留倍数1立即回落、忽略低优后台负载
+if [ -d /sys/devices/system/cpu/cpufreq/ondemand ]; then
+    echo 75 > /sys/devices/system/cpu/cpufreq/ondemand/up_threshold 2>/dev/null
+    echo 1 > /sys/devices/system/cpu/cpufreq/ondemand/sampling_down_factor 2>/dev/null
+    echo 0 > /sys/devices/system/cpu/cpufreq/ondemand/powersave_bias 2>/dev/null
+    echo 1 > /sys/devices/system/cpu/cpufreq/ondemand/ignore_nice_load 2>/dev/null
+    echo 0 > /sys/devices/system/cpu/cpufreq/ondemand/io_is_busy 2>/dev/null
+fi
+
+# 7. 调优 PPE 流表硬件加速触发门限（降至 5 pps，加速常规数据流直转入硬件芯片，释放 CPU 软中断）
+if [ -w /sys/kernel/debug/ppe/bind_rate ]; then
+    echo "5 5" > /sys/kernel/debug/ppe/bind_rate 2>/dev/null
+fi
+
+# 8. 保护光纤心跳进程 airoha-pond：免疫 OOM Killer (-1000)
+for p in $(pgrep airoha-pond 2>/dev/null); do
+    echo -1000 > "/proc/$p/oom_score_adj" 2>/dev/null
+done
+
+# 9. 优化 Wi-Fi 空口：关闭 AQL 空口限速与 ATF 压制，释放全速千兆空口
+for p in /sys/kernel/debug/ieee80211/phy*/aql_enable /sys/kernel/debug/ieee80211/phy*/mt76/vow_atf; do
+    [ -w "$p" ] && echo 0 > "$p" 2>/dev/null
+done
+
+# 10. PPPoE 广域网优化：启用硬件 GRO，并扩大发送队列深度至 5000（消除突发高吞吐及微信短连接 ACK 丢包）
+ethtool -K pppoe-wan gro on 2>/dev/null
+ip link set pppoe-wan txqueuelen 5000 2>/dev/null
+
+exit 0
