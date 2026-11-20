@@ -19,28 +19,31 @@
 
 ## 📢 最新版本核心更新动态 (Changelog)
 
-### 🌟 v2026.11.19-0827（相比前一版本 v2026.11.17-2012 的核心变化）
+### 🌟 v2026.11.20-0146（相比前一版本 v2026.11.19-0827 的核心变化）
 
-1. **全面引入 Broadcom FullCone 2 支持（全功能 NAT1 / 游戏联机体验跃升）**：
-   - 在 Linux 6.18 内核、底层数据包库 `libnftnl`、规则管理工具 `nftables` 以及 OpenWrt 核心防火墙 `firewall4` 中，完整集成并适配 Broadcom FullCone 2 架构支持。
-   - **硬件卸载无冲突共存**：针对 `firewall4` 专门增加全功能 FullCone 2 模式，彻底攻克了传统 FullCone NAT 补丁与 Airoha / MediaTek 硬件流卸载（PPE / Hardware Flow Offloading）共存时的规则覆写、丢包与状态不一致缺陷。
-   - **实测收益**：局域网内 PC、PS5、Xbox、Switch 等游戏主机及 P2P / BT 客户端稳定达成 **NAT1 (Full Cone)**，大幅提升 UDP 打洞成功率，显著降低多人联机游戏延迟与对战连接阻断。
+1. **彻底根除微信朋友圈与国内 CDN 图片/视频转圈卡顿（网络乱序与缓冲瓶颈双重根治）**：
+   - **全面关闭多层虚拟网卡的跨核软 RPS（`rps_cpus = 0`）**：彻底停用在多层虚拟接口（`pon0 -> pon0.41 -> pppoe-wan -> br-lan`）上开启的跨核软 RPS，消除跨 CPU 核心调度引发的 IPI 锁争用与 TCP 严重乱序重传，流量交由底层硬件 PPE 芯片直转；
+   - **PPPoE 发送队列深度扩容（`txqueuelen 5000`）**：修复了上游 ppp 接口默认发送队列仅为 `3` 的严重缺陷，防止在大吞吐下行或突发小包时发送队列瞬时打满导致的 ACK 丢包与卡顿；
+   - **精细化双栈 TCP MSS 自动钳制（IPv4 1452 / IPv6 1412）**：预置 `99-mss-clamp.nft` 规则，针对 PPPoE 的 8 字节封装开销，精确将 IPv4 MSS 钳制至 1452、IPv6 MSS 钳制至 1412，从根源消除移动端访问微信朋友圈图片/视频及各类国内 CDN 时因 IPv6 PMTU 黑洞导致的长时间转圈等待。
 
-2. **固件极致瘦身与动态核心解耦（ROM 释放 64MB sing-box + 30MB honk 核心，按需动态拉取）**：
-   - **全面剔除固件只读内置的 `sing-box` 与 `honk-core` 静态二进制**：固件 ROM 镜像直接瘦身超 **30MB+**（解压缩后等效释放近 **100MB** Flash 空间），彻底根除小存储设备升级空间告急的痛点，杜绝“只读 ROM 占一份、在线升级写 Overlay 又占一份”的闪存双重浪费。
-   - **解耦核心更新与固件更新（零刷机秒级换代）**：
-     - 固件完整固化不可替代的硬核底层运行环境（Linux 6.18 内核 BTF `/sys/kernel/btf/vmlinux`、`kmod-bpf`、`kmod-sched-core`、`kmod-nft-queue`、`kmod-tun` 等核心模块）与 UCI/procd 服务骨架。
-     - 用户态核心转由内置的通用 `honk-install` 助手按需拉取（支持多镜像动态测速回退，刷机后执行 `honk-install` 即可秒级安装官方最新核心）。
-     - `/etc/sysupgrade.conf` 自动将 `/usr/bin/honk-core` 纳入系统备份白名单，后续固件升级自动无感保留，无需重复下载。
-   - **集成最新 Tailscale 1.104.7 稳定版**：同步更新 Tailscale 虚拟组网引擎至官方最新的 `1.104.7`，显著提升跨公网打洞成功率与传输吞吐。
+2. **CPU 调度策略优化（默认动态按需 `ondemand`）**：
+   - 将 CPUFreq 默认调频策略重置并固化为 **`ondemand`**（上跳门限 75%），在网络空闲待机时智能降频降温节能，在瞬时突发或大流量并发时毫秒级拉满 1.2GHz 四核性能，兼顾日常低发热与极速响应，杜绝硬锁性能模式带来的设备积热。
 
-3. **多核网络软中断与 32-Queue RPS/RFS 深度调优**：
-   - **32-Queue 多队列软中断均衡（RPS / RFS）**：针对 Airoha AN7581 四核 Cortex-A53 架构，全面重构网卡与 PPPoE 虚拟接口的队列调度策略，激活 32 队列 RPS / RFS 多核软中断均衡，将大吞吐下行与并发小包均匀打散至 4 个物理核心，彻底根除千兆/2.5G 跑满时软中断积压于单核（Core 0）导致的假死卡顿与丢包。
-   - **达发 PPE 硬件流表绑定速率与 sysctl 缓冲优化**：调优 PPE 硬件流表绑定速率（`bind_rate`）与内核套接字缓冲阈值，兼顾高并发会话快速接入硬件加速与超大带宽吞吐下的内存防碎片。
+3. **系统内存架构重塑与高并发防 OOM 机制**：
+   - **集成 ZRAM 压缩内存交换（`kmod-zram` + `zram-swap`）**：为 512MB 内存设备引入快速内存压缩置换机制，平抑并发多任务与高负载时的瞬时内存峰值；
+   - **光猫核心守护进程 `airoha-pond` 注入 OOM 豁免保护**：为关键的 PON 认证与测距守护进程配置 `oom_score_adj = -1000`，杜绝在极端高并发内存压力下因 Linux 内核 OOM Killer 误杀 PON 核心引发的整机断网；
+   - **调优默认套接字缓冲区与 Go 运行时内存限制**：
+     - 修复 `rmem_default` 与 `wmem_default` 设为 2MB 导致的常驻内存浪费陷阱，回归平衡的 256KB 初始缓冲（最大缓冲维持 16MB 满血带宽能力）；
+     - 为 `tailscaled` 预设 `GOMEMLIMIT=48MiB` 与 `GOGC=50`，抑制 Go 运行时堆内存扩张；
+     - 调优 `rtp2httpd` 组播代理（单 worker + 512KB UDP 缓冲），实现 IPTV 零拷贝秒开同时内存常驻降至最低；
+   - **完整保留原生 USB 2.0/3.0 存储协议栈与驱动**：保持 USB 存储、文件系统与挂载机制完备可用。
 
-4. **CI/CD 构建流水线与 Firewall4 补丁闭环修复**：
-   - **精准适配 OpenWrt 24.10 提交（`e6f600c4`）**：修正 `firewall4` 针对 OpenWrt 最新源码提交的代码上下文偏移量与行数计数，彻底清理 CI 流水线中外部冗余覆盖步骤，杜绝了 `firewall.rej` 的编译中断缺陷。
-   - GitHub Actions 每日/触发构建成功率提升至 100%，持续保障 **兆能 ZN504XG-D** 与 **烽火 HG5585F 电信版** 双旗舰固件的高质稳定交付。
+4. **透明代理核心解耦与按需动态拉取架构**：
+   - **解耦 30MB `honk-core` 静态二进制**：从 SquashFS 只读 ROM 中移出庞大的静态二进制，大幅缩减固件体积（解压缩后等效释放近 100MB Flash 空间）；
+   - **官方提供通用安装助手 `honk-install`**：固件内置原生 eBPF CO-RE 运行时环境、内核模块与 procd 服务框架，用户态核心可通过 `honk-install` 按需在线安装或升级，并自动加入 `/etc/sysupgrade.conf` 系统升级白名单，后续固件无缝保留。
+
+5. **构建流水线与无线协议栈依赖冲突修复**：
+   - 彻底修复 `configs/release.config` 中 `hostapd-openssl` 与目标机型 Profile 声明的 `wpad-openssl` 产生的 apk 虚拟包依赖冲突，构建流水线 100% 顺畅出包，确保全功能 WPA3 与 802.11r/k/v 漫游特性完整可用。
 
 ---
 
