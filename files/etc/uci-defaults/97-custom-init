@@ -3,7 +3,8 @@
 #
 # 内容：[1] 2.4G/5G WiFi（SSID + WPA2 密钥）→ [2] 清 IPv6 ULA / 关 packet steering →
 #       [3] lan1~lan4 随机 MAC → [4] LAN IP 改为 172.16.6.1/24 → [5] lan1 改作 WAN →
-#       [6] wan1/wan1_6 进 wan zone → [7] LuCI 默认主题设为 Aurora → [8] 自动挂载未配置的磁盘分区
+#       [6] wan1/wan1_6 进 wan zone → [7] LuCI 默认主题设为 Aurora → [8] 自动挂载未配置的磁盘分区 →
+#       [9] IPv6 中继（dhcp.lan + dhcp.wan1_6 均为 relay）
 #
 # ⚠ 含 WiFi 密钥：本仓库是公开 fork，密钥会明文躺在仓库里，请自行评估。
 #    如介意可把下面的 WIFI_KEY 改成占位符，刷机后进 LuCI 再改。
@@ -25,7 +26,7 @@ WIFI_5_DEV='radio1';          WIFI_5_IFACE='default_radio1'    # 5G
 
 log() { logger -t custom-init "$@"; }
 
-echo "=== [1/8] 正在配置 2.4G 与 5G Wi-Fi ==="
+echo "=== [1/9] 正在配置 2.4G 与 5G Wi-Fi ==="
 
 # 按频段找 wifi-device（兼容新旧两种命名）
 find_radio() { # $1: 2g|5g → 输出 device 名
@@ -81,7 +82,7 @@ else
 	log "未找到 /etc/config/wireless，跳过 WiFi 配置"
 fi
 
-echo "=== [2/8] 正在清空 IPv6 ULA 前缀并禁用数据包引导 ==="
+echo "=== [2/9] 正在清空 IPv6 ULA 前缀并禁用数据包引导 ==="
 rm -f /etc/uci-defaults/*network-generate-ula* /rom/etc/uci-defaults/*network-generate-ula* 2>/dev/null
 sed -i "/ula_prefix/d" /etc/config/network
 sed -i "/packet_steering/d" /etc/config/network
@@ -92,7 +93,7 @@ uci commit network
 for rps in /sys/class/net/*/queues/rx-*/rps_cpus; do echo 0 > "$rps" 2>/dev/null; done
 for xps in /sys/class/net/*/queues/tx-*/xps_cpus; do echo 0 > "$xps" 2>/dev/null; done
 
-echo "=== [3/8] 正在生成并校验 lan1~lan4 随机 MAC 地址 ==="
+echo "=== [3/9] 正在生成并校验 lan1~lan4 随机 MAC 地址 ==="
 # 1. 获取 lan1 的原 MAC 地址（若不存在则回退读取 br-lan）
 orig_mac=$(cat /sys/class/net/lan1/address 2>/dev/null)
 [ -z "$orig_mac" ] && orig_mac=$(cat /sys/class/net/br-lan/address 2>/dev/null)
@@ -155,7 +156,7 @@ else
     echo "错误：读取到的 lan1 MAC 前缀 ($prefix) 不合理，为保障安全已跳过修改！"
 fi
 
-echo "=== [4/8] 正在将 LAN IP 修改为 $LAN_IP ==="
+echo "=== [4/9] 正在将 LAN IP 修改为 $LAN_IP ==="
 LAN_IP='172.16.6.1'
 LAN_NETMASK='255.255.255.0'
 uci set network.lan.ipaddr="$LAN_IP"
@@ -165,7 +166,7 @@ uci set system.@system[0].hostname='Moto'
 uci commit system
 log "主机名已设为 Moto"
 
-echo "=== [5/8] 正在把 lan1 从 br-lan 移出并新建 wan1/wan1_6 ==="
+echo "=== [5/9] 正在把 lan1 从 br-lan 移出并新建 wan1/wan1_6 ==="
 # 1) 从 br-lan 的端口列表里去掉 lan1（兼容 list 型 ports 与字符串型 ports）
 brsec=$(uci show network 2>/dev/null | grep -E "network\.@?device[^.]*\.name='br-lan'" | cut -d. -f2 | head -n 1)
 if [ -n "$brsec" ]; then
@@ -202,7 +203,7 @@ uci commit network
 # 且实测 blue:lan-1 写 brightness=1（触发器关掉后）也不亮，说明这颗灯的 GPIO 通路
 # 本身有问题（疑似 CT 板 lan1 灯由交换芯片驱动，脱离 br-lan 后就不推了），不是 dev 名字问题。
 
-echo "=== [6/8] 正在把 wan1 与 wan1_6 加进防火墙 wan zone ==="
+echo "=== [6/9] 正在把 wan1 与 wan1_6 加进防火墙 wan zone ==="
 # 找出 name='wan' 的 zone 段（兼容具名与匿名段）
 wanzone=""
 for sec in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\(.*\)=zone$/\1/p'); do
@@ -224,18 +225,37 @@ else
     log "未找到 name='wan' 的防火墙 zone，跳过 wan1/wan1_6 入 zone"
 fi
 
-echo "=== [7/8] 正在把 LuCI 默认主题设为 Aurora ==="
+echo "=== [7/9] 正在把 LuCI 默认主题设为 Aurora ==="
 uci set luci.main.mediaurlbase='/luci-static/aurora' 2>/dev/null
 uci commit luci 2>/dev/null
 log "LuCI 默认主题已设为 Aurora"
 
-echo "=== [8/8] 正在开启自动挂载未配置的磁盘分区 ==="
+echo "=== [8/9] 正在开启自动挂载未配置的磁盘分区 ==="
 # fstab global 段的 anon_mount：LuCI「挂载点」→「自动挂载未配置的磁盘分区」
 # 默认是 0（不勾）；设为 1 后插 U 盘/硬盘会自动挂到 /mnt 下
 uci -q get fstab.@global[0] >/dev/null 2>&1 || uci add fstab global >/dev/null 2>&1
 uci set fstab.@global[0].anon_mount='1'
 uci commit fstab
 log "自动挂载未配置的磁盘分区已开启（fstab anon_mount=1）"
+
+echo "=== [9/9] 正在配置 IPv6 中继（DHCP） ==="
+# LAN：RA/DHCPv6/NDP 全部中继，ra_management 开
+uci set dhcp.lan.ra='relay'
+uci set dhcp.lan.ndp='relay'
+uci set dhcp.lan.dhcpv6='relay'
+uci set dhcp.lan.ra_management='1'
+# wan1_6：新建 dhcp 段，中继模式（上游来的 RA/DHCPv6/NDP 往 LAN 转）
+uci set dhcp.wan1_6='dhcp'
+uci set dhcp.wan1_6.interface='wan1_6'
+uci set dhcp.wan1_6.ignore='1'
+uci set dhcp.wan1_6.master='1'
+uci set dhcp.wan1_6.ra='relay'
+uci delete dhcp.wan1_6.ra_flags 2>/dev/null
+uci add_list dhcp.wan1_6.ra_flags='none'
+uci set dhcp.wan1_6.dhcpv6='relay'
+uci set dhcp.wan1_6.ndp='relay'
+uci commit dhcp
+log "IPv6 中继已配置（dhcp.lan + dhcp.wan1_6 均为 relay）"
 
 # 让已提交的无线配置立即生效（首启时多为兜底）
 command -v wifi >/dev/null 2>&1 && wifi reload >/dev/null 2>&1 || true
