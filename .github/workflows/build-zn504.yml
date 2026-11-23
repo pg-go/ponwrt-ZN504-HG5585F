@@ -1,4 +1,4 @@
-name: Build PonWrt (ZN504XG-D & HG5585F)
+name: Build PonWrt HG5585F CT (Pig-2)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       upload_release:
         description: 'Upload firmware to GitHub Releases'
         required: false
-        default: true
+        default: 'true'
         type: boolean
       cache_mode:
         description: '编译缓存模式 (使用缓存 / 重新编译 / 不使用缓存)'
@@ -38,7 +38,7 @@ env:
 
 jobs:
   build:
-    name: Build ZN504XG-D & HG5585F
+    name: Build HG5585F CT (Pig-2)
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -88,7 +88,7 @@ jobs:
           bash ./scripts/customize.sh
 
       - name: Restore compiler ccache
-        if: (github.event.inputs.cache_mode || '使用缓存') != '不使用缓存'
+        if: ${{ github.event.inputs.cache_mode || '使用缓存' }} != '不使用缓存'
         uses: actions/cache/restore@v4
         with:
           path: .ccache
@@ -97,7 +97,7 @@ jobs:
             ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-
             ponwrt-ccache-zn504-
 
-      - name: Configure for ZN504XG-D
+      - name: Configure for HG5585F CT (Pig-2)
         run: |
           ./scripts/kconfig.pl + \
             configs/an7581.config \
@@ -119,14 +119,14 @@ jobs:
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Save compiler ccache
-        if: always() && ((github.event.inputs.cache_mode || '使用缓存') != '不使用缓存')
+        if: always() && (${{ github.event.inputs.cache_mode || '使用缓存' }} != '不使用缓存')
         uses: actions/cache/save@v4
         with:
           path: .ccache
           key: ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-${{ github.sha }}
 
       - name: Show compiler cache statistics
-        if: always() && ((github.event.inputs.cache_mode || '使用缓存') != '不使用缓存')
+        if: always() && (${{ github.event.inputs.cache_mode || '使用缓存' }} != '不使用缓存')
         run: |
           [ -x staging_dir/host/bin/ccache ] && CCACHE_DIR=$PWD/.ccache staging_dir/host/bin/ccache -s || true
 
@@ -145,7 +145,7 @@ jobs:
       - name: Upload Firmware Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PonWrt-ZN504-HG5585F-enhanced-firmware
+          name: PonWrt-HG5585F-CT-Pig-2-firmware
           path: output/*
           retention-days: 14
 
@@ -162,30 +162,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: PonWrt ZN504XG-D & HG5585F 聚合增强固件 (${{ steps.tag.outputs.release_tag }})
+          name: PonWrt HG5585F CT (Pig-2) (${{ steps.tag.outputs.release_tag }})
           body: |
-            ## 🌟 相比前一版本（v2026.11.20-0146）的核心更新与变化
+            ## Pig-2（FiberHome HG5585F CT 专用，基于 Moto-4）
 
-            ### 1. 原生集成 `luci-app-honk` 图形化 Web 管理插件与全中文语言包
-            - **开箱即用 Web 界面**：固件内置完整的 `luci-app-honk` 前端组件，在 LuCI「服务」菜单下直接展示为 **「Honk 透明代理」**；
-            - **图形化控制与在线编辑**：支持在 Web 界面实时查看核心运行状态、启停管理、语法高亮在线编辑与保存 `/etc/honk/config.dae`、实时日志追踪及联动 doona Web 仪表盘；
-            - **全中文本地化支持**：同步集成 `luci-i18n-honk-zh-cn` 中文语言包（`po/zh_Hans/luci-app-honk.po`），彻底告别纯命令行维护。
+            ### 上游基线更新
+            - **内核 BTF 已进上游**：`CONFIG_KERNEL_DEBUG_INFO_BTF=y` 等写进 release.config。
+            - **AN4475-G2 新机型支持**：上游新增，本分支只编 CT，已在 release.config 里关掉其余 12 个机型。
+            - **FullCone NAT + NTP 重定向**：防火墙默认 FullCone；内网 UDP 123 校时重定向到本机 NTP。
+            - **RTL8221B LED、低延迟抢占（250Hz + PREEMPT）、PPE 补丁 931+932**：上游原样保留。
 
-            ### 2. 内置终端双核透明代理交互式管理面板（`sb-honk`）
-            - **终端管理控制台**：内置轻量高效的终端交互式控制台 `/usr/bin/sb-honk`（支持快捷软链 `sb`、`sb-bonk`）；
-            - **一键互斥切换与流卸载联动**：支持 Sing-Box（TUN 裸核模式）与 Honk（eBPF 零开销旁路）一键平滑互斥切换，自动联动防火墙 Flow Offload 与硬件 PPE 加速切换，并接管 Dnsmasq 5353 零泄露上游；
-            - **安全脱敏与模块解耦**：彻底剥离任何私人节点与测试域名，内置安全的配置校验与通用 GitHub 远程订阅拉取机制。
+            ### Pig 定制（与 Moto-4 的区别）
+            - **主题只留 Aurora**：去 ttyd、footstrap、argon、bootstrap、ddns；Vantage 已去掉。
+            - **代理用 Homi，不用 honk**：honk 四件套已去掉，**Homi 三件套（mihomo + homi + luci-app-homi）在**；sing-box 保留。
+            - **自带软件**：EasyTier、NetPath 仪表盘、Harbor 文件管理、DUFS（5006）、NATMap、UPnP、USB 网卡驱动、ntfs3。
+            - **USB 3.0 + USB2 灯**：CT 的 USB2 口已焊 USB 3.0 座子，DTS 的 usb0 超速锁已删（硬盘应跑 5000M）；01_leds 已补 USB 2 灯；release.config 已加 `CONFIG_PACKAGE_kmod-usb-ledtrig-usbport=y`。
+            - **网络/LAN**：LAN 172.16.9.1/24，lan1 不改 WAN、仍是 LAN 口，WiFi Pig/Pig_5G。
 
-            ### 3. 修复 Airoha NPU / Frame Engine 仪表盘 Wi-Fi 客户端显示为 0 的 Bug
-            - **信道频段动态识别**：重构 `luci.airoha_npu` 中的频段扫描匹配逻辑，由过去硬编码接口名改为根据信道无线频率动态判别（`<3000MHz` 归类为 2.4G，`<5900MHz` 归类为 5G）；
-            - **统计恢复**：彻底解决上一版本在 `phy0-ap0` / `phy1-ap0` 接口命名下 2.4G / 5G 关联客户端数始终显示为 `0 sta` 的缺陷，精准恢复各频段在线客户端统计与重传率显示。
-
-            ### 4. 系统内存防抖与 Web 进程并发优化
-            - **消灭 kswapd0 内存颠簸**：固化 `vm.swappiness=0` 与 `vm.percpu_pagelist_high_fraction=128`，消除无 Swap 分区环境下内核线程在内存高水位时的激进回收与 CPU 占用抖动；
-            - **Web 并发处理能力提升**：`uhttpd` 最大请求并发数由 3 提升至 16，彻底消除 LuCI 多页面并行加载与高频 RPC 轮询时的连接排队与卡顿。
-
-            ### 5. 局域网服务与持久化升级清单完善
-            - **SideStore 局域网回环修复**：内置 `30-sidestore.nft`，修复 iOS 设备（SideStore / AltStore）跨网段局域网证书自签名与握手回环；
-            - **清理冗余网络脚本**：移除陈旧冲突的 4 套 3:1:2 绑核脚本与重复的 MSS 钳制文件，开机由系统内核自主均衡多核心软中断；
-            - **升级白名单固化**：扩展 `/etc/sysupgrade.conf`，将 Honk 核心组件、LuCI 静态资源与关键网络调优脚本纳入系统升级保护白名单，后续固件升级自动无感保留全量配置。
+            ### 刷机
+            - 用 LuCI 备份/升级刷 `*-fiberhome_hg5585f-ct-squashfs-sysupgrade.itb`；首次刷建议不保留配置。
+            - 刷后验证：`lsusb -t` 硬盘应在 5000M；`lsmod | grep ledtrig` 应有 ledtrig_usbport；两 USB 灯亮。
           files: output/*
