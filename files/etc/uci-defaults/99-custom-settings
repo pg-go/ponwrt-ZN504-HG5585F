@@ -33,10 +33,11 @@ if ! uci -q get firewall.@zone[1].network | grep -qw 'wan_6'; then
 fi
 uci -q commit firewall
 
-# 1.2 预置 LuCI 默认主题为 Vantage 主题并提升 uhttpd 并发处理能力至 16
+# 1.2 预置 LuCI 默认主题为 Aurora 主题（并注册主题列表）
+# （Pig-2 定制：上游默认 Vantage，Pig 只留 Aurora）
 uci -q batch <<'UCIEOF'
-set luci.themes.Vantage='/luci-static/vantage'
-set luci.main.mediaurlbase='/luci-static/vantage'
+set luci.themes.Aurora='/luci-static/aurora'
+set luci.main.mediaurlbase='/luci-static/aurora'
 commit luci
 set uhttpd.main.max_requests='16'
 commit uhttpd
@@ -146,7 +147,7 @@ if [ -f /etc/config/tailscale ]; then
 fi
 
 # 4. 代理与网络配置目录预置及清理旧 3:1:2 亲和性残留脚本
-mkdir -p /etc/honk
+mkdir -p /etc/sing-box /etc/honk
 rm -f /etc/hotplug.d/net/99-wifi-affinity /etc/hotplug.d/net/99-mt7916-cpu-affinity /etc/init.d/mt7916_affinity /etc/rc.d/S99mt7916_affinity /usr/sbin/pin-wifi-cpus.sh 2>/dev/null || true
 chmod +x /etc/hotplug.d/net/50-fw4-bridge-reload 2>/dev/null || true
 chmod +x /etc/hotplug.d/net/99-multicast 2>/dev/null || true
@@ -238,7 +239,7 @@ echo "log-facility=/dev/null" >> /etc/dnsmasq.conf
 
 # 9. 烽火 (FiberHome) PON 认证与代理配置跨版本升级自动保护机制
 SYSUPGRADE_CONF="/etc/sysupgrade.conf"
-for path in "/etc/config/pon" "/etc/fiberhome_pon_backup.uci" "/etc/fiberhome_pon_info.txt" "/usr/sbin/backup-fiberhome-pon.sh" "/usr/sbin/restore-fiberhome-pon.sh" "/etc/honk" "/etc/config/honk" "/etc/nftables.d/30-sidestore.nft"; do
+for path in "/etc/config/pon" "/etc/fiberhome_pon_backup.uci" "/etc/fiberhome_pon_info.txt" "/usr/sbin/backup-fiberhome-pon.sh" "/usr/sbin/restore-fiberhome-pon.sh" "/etc/sing-box" "/etc/honk" "/etc/config/honk" "/etc/nftables.d/30-sidestore.nft"; do
     if ! grep -q "^$path" "$SYSUPGRADE_CONF" 2>/dev/null; then
         echo "$path" >> "$SYSUPGRADE_CONF"
     fi
