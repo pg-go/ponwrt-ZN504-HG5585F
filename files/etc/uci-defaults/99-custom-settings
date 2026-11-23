@@ -33,10 +33,11 @@ if ! uci -q get firewall.@zone[1].network | grep -qw 'wan_6'; then
 fi
 uci -q commit firewall
 
-# 1.2 预置 LuCI 默认主题为 Vantage 主题并提升 uhttpd 并发处理能力至 16
+# 1.2 预置 LuCI 默认主题为 Aurora 主题（并注册主题列表）
+# （Moto-7 定制：上游默认 Vantage，Moto 只留 Aurora）
 uci -q batch <<'UCIEOF'
-set luci.themes.Vantage='/luci-static/vantage'
-set luci.main.mediaurlbase='/luci-static/vantage'
+set luci.themes.Aurora='/luci-static/aurora'
+set luci.main.mediaurlbase='/luci-static/aurora'
 commit luci
 set uhttpd.main.max_requests='16'
 commit uhttpd
