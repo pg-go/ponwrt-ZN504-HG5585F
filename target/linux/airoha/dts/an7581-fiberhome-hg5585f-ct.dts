@@ -8,8 +8,7 @@
 	compatible = "fiberhome,hg5585f-ct", "airoha,an7581", "airoha,en7581";
 };
 
-/* Telecom (CT) hardware physically features USB 2.0 only; lock usb0 to USB 2.0 PHY */
-&usb0 {
-	mediatek,u3p-dis-msk = <0x1>;
-	phys = <&usb0_phy PHY_TYPE_USB2>;
-};
+/* Moto: USB 3.0 connector soldered onto the USB2 (silkscreen) port, hardware
+ * fully populated. The stock USB 2.0-only lock on usb0 is removed, so usb0
+ * uses the common USB 3.0 config (same as CU): both USB2 and USB3 PHYs,
+ * SuperSpeed lane enabled. */
