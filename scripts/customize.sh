@@ -7,7 +7,7 @@ set -euo pipefail
 # - QWRT Optional: Samba4, GecoosAC, WOL Ultra
 # - Kahen Essence: Temperature RPC (/sbin/tempinfo), Footstrap Theme, Clean Feeds
 # - LeoooChen Essence: Line-rate PPPoE / XG-PON offload & High Throughput Buffers
-# - Sing-Box & Homi: Pig keeps sing-box, Homi is the main proxy; Tailscale not used
+# - Homi: mihomo proxy only; sing-box/honk removed; Tailscale not used
 # - Pig-2: Honk removed, Homi kept as main proxy; Aurora theme; plus Pig custom packages
 echo "=== [PonWrt-ZN504] Preparing build dependencies and custom packages ==="
 
@@ -47,57 +47,11 @@ if [ -d "./feeds/pon_userspace" ] && [ -f "$TOP_DIR/patches/03-pon-userspace-ipt
     (cd feeds/pon_userspace && git apply --check "$TOP_DIR/patches/03-pon-userspace-iptv-bridge-mac-fix.patch" 2>/dev/null && git apply "$TOP_DIR/patches/03-pon-userspace-iptv-bridge-mac-fix.patch") || true
     ./scripts/feeds install -p pon_userspace -f || true
 fi
-# 5. 升级 sing-box 核心至 1.15.0-alpha.13（支持 endpoints[].on_demand 等 1.15+ 新版配置语法）
-# OpenWrt APK v3 禁止 PKG_VERSION 包含 '-'，因此包版本使用 1.15.0_alpha13，源码与二进制版本号保留 1.15.0-alpha.13
-SING_BOX_MK="./feeds/packages/net/sing-box/Makefile"
-if [ -f "$SING_BOX_MK" ] && ! grep -q "PKG_UPSTREAM_VERSION:=1.15.0-alpha.13" "$SING_BOX_MK"; then
-    echo "--> Updating sing-box to 1.15.0-alpha.13..."
-    python3 - "$SING_BOX_MK" <<'PYEOF'
-import re, sys
-
-path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as f:
-    src = f.read()
-
-target_pkg_ver = "1.15.0_alpha13"
-target_upstream = "1.15.0-alpha.13"
-target_hash = "29047987ed69ba790f2ae4eec62abf41bd1619d093af071f505b4ba081e06b44"
-
-src, n1 = re.subn(
-    r"^PKG_VERSION:=.*$",
-    f"PKG_VERSION:={target_pkg_ver}\nPKG_UPSTREAM_VERSION:={target_upstream}",
-    src, count=1, flags=re.M,
-)
-src, n2 = re.subn(r"^PKG_RELEASE:=.*$", "PKG_RELEASE:=1", src, count=1, flags=re.M)
-src, n3 = re.subn(
-    r"^PKG_SOURCE:=.*$",
-    "PKG_SOURCE:=$(PKG_NAME)-$(PKG_UPSTREAM_VERSION).tar.gz",
-    src, count=1, flags=re.M,
-)
-src, n4 = re.subn(
-    r"^PKG_SOURCE_URL:=.*$",
-    "PKG_SOURCE_URL:=https://codeload.github.com/SagerNet/sing-box/tar.gz/v$(PKG_UPSTREAM_VERSION)?",
-    src, count=1, flags=re.M,
-)
-src, n5 = re.subn(
-    r"^PKG_HASH:=.*$",
-    f"PKG_HASH:={target_hash}\nPKG_BUILD_DIR:=$(BUILD_DIR)/$(if $(BUILD_VARIANT),$(PKG_NAME)-$(BUILD_VARIANT)/)$(PKG_NAME)-$(PKG_UPSTREAM_VERSION)",
-    src, count=1, flags=re.M,
-)
-src = src.replace("constant.Version=$(PKG_VERSION)", "constant.Version=$(PKG_UPSTREAM_VERSION)")
-
-assert all(n == 1 for n in (n1, n2, n3, n4, n5)), f"Unexpected sing-box Makefile layout: {(n1, n2, n3, n4, n5)}"
-with open(path, "w", encoding="utf-8") as f:
-    f.write(src)
-PYEOF
-    rm -f ./tmp/.packageinfo ./tmp/.config-package.in 2>/dev/null || true
-fi
-
-# 6. 规避 Airoha 架构下非必要 feed 循环依赖 (如无用的 squeezelite 音频)
+# 5. 规避 Airoha 架构下非必要 feed 循环依赖 (如无用的 squeezelite 音频)
 if [ -L "./package/feeds/packages/squeezelite" ]; then
     rm -f "./package/feeds/packages/squeezelite"
 fi
-# 7. Pig 定制软件（基于 Moto-7，honk 已去掉，Homi 为主力代理）
+# 6. Pig 定制软件（基于 Moto-7，honk 已去掉，Homi 为主力代理）
 #    Homi 做全部代理（mihomo + homi + luci-app-homi）。
 #    只拉取 configs/release.config 第 8 节里 =y 的那几个；
 #    feeds / 内核树已有的（natmap、upnp、iptv、usb-net、jq 等）不用拉。
