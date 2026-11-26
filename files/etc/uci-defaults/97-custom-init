@@ -17,7 +17,7 @@
 # ---------------- 可调参数 ----------------
 WIFI_24_SSID='Pig'
 WIFI_5_SSID='Pig_5G'
-WIFI_KEY='arzin1122'
+WIFI_KEY='k13760405087'
 WIFI_24_CHANNEL='1'
 WIFI_5_CHANNEL='36'
 WIFI_24_DEV='radio0';         WIFI_24_IFACE='default_radio0'   # 2.4G
