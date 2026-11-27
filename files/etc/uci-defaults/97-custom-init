@@ -3,7 +3,8 @@
 #
 # 内容：[1] 2.4G/5G WiFi（SSID + WPA2 密钥）→ [2] 清 IPv6 ULA / 关 packet steering →
 #       [3] lan1~lan4 随机 MAC → [4] LAN IP 改为 172.16.9.1/24 →
-#       [5] LuCI 默认主题设为 Aurora → [6] 自动挂载未配置的磁盘分区
+#       [5] LuCI 默认主题设为 Aurora → [6] 自动挂载未配置的磁盘分区 →
+#       [7] 通用 IPv6 默认路由（路由器自身 IPv6 直出，不进 TUN）
 # 注意：Pig 的 lan1 不改 WAN，仍是 LAN 口，所以没有 Moto 的 [5][6] 两步。
 #
 # ⚠ 含 WiFi 密钥：本仓库是公开 fork，密钥会明文躺在仓库里，请自行评估。
@@ -26,7 +27,7 @@ WIFI_5_DEV='radio1';          WIFI_5_IFACE='default_radio1'    # 5G
 
 log() { logger -t custom-init "$@"; }
 
-echo "=== [1/6] 正在配置 2.4G 与 5G Wi-Fi ==="
+echo "=== [1/7] 正在配置 2.4G 与 5G Wi-Fi ==="
 
 # 按频段找 wifi-device（兼容新旧两种命名）
 find_radio() { # $1: 2g|5g → 输出 device 名
@@ -82,7 +83,7 @@ else
 	log "未找到 /etc/config/wireless，跳过 WiFi 配置"
 fi
 
-echo "=== [2/6] 正在清空 IPv6 ULA 前缀并禁用数据包引导 ==="
+echo "=== [2/7] 正在清空 IPv6 ULA 前缀并禁用数据包引导 ==="
 rm -f /etc/uci-defaults/*network-generate-ula* /rom/etc/uci-defaults/*network-generate-ula* 2>/dev/null
 sed -i "/ula_prefix/d" /etc/config/network
 sed -i "/packet_steering/d" /etc/config/network
@@ -93,7 +94,7 @@ uci commit network
 for rps in /sys/class/net/*/queues/rx-*/rps_cpus; do echo 0 > "$rps" 2>/dev/null; done
 for xps in /sys/class/net/*/queues/tx-*/xps_cpus; do echo 0 > "$xps" 2>/dev/null; done
 
-echo "=== [3/6] 正在生成并校验 lan1~lan4 随机 MAC 地址 ==="
+echo "=== [3/7] 正在生成并校验 lan1~lan4 随机 MAC 地址 ==="
 # 1. 获取 lan1 的原 MAC 地址（若不存在则回退读取 br-lan）
 orig_mac=$(cat /sys/class/net/lan1/address 2>/dev/null)
 [ -z "$orig_mac" ] && orig_mac=$(cat /sys/class/net/br-lan/address 2>/dev/null)
@@ -156,7 +157,7 @@ else
     echo "错误：读取到的 lan1 MAC 前缀 ($prefix) 不合理，为保障安全已跳过修改！"
 fi
 
-echo "=== [4/6] 正在将 LAN IP 修改为 $LAN_IP ==="
+echo "=== [4/7] 正在将 LAN IP 修改为 $LAN_IP ==="
 LAN_IP='172.16.9.1'
 LAN_NETMASK='255.255.255.0'
 uci set network.lan.ipaddr="$LAN_IP"
@@ -167,18 +168,35 @@ uci commit system
 log "主机名已设为 Pig"
 
 
-echo "=== [5/6] 正在把 LuCI 默认主题设为 Aurora ==="
+echo "=== [5/7] 正在把 LuCI 默认主题设为 Aurora ==="
 uci set luci.main.mediaurlbase='/luci-static/aurora' 2>/dev/null
 uci commit luci 2>/dev/null
 log "LuCI 默认主题已设为 Aurora"
 
-echo "=== [6/6] 正在开启自动挂载未配置的磁盘分区 ==="
+echo "=== [6/7] 正在开启自动挂载未配置的磁盘分区 ==="
 # fstab global 段的 anon_mount：LuCI「挂载点」→「自动挂载未配置的磁盘分区」
 # 默认是 0（不勾）；设为 1 后插 U 盘/硬盘会自动挂到 /mnt 下
 uci -q get fstab.@global[0] >/dev/null 2>&1 || uci add fstab global >/dev/null 2>&1
 uci set fstab.@global[0].anon_mount='1'
 uci commit fstab
 log "自动挂载未配置的磁盘分区已开启（fstab anon_mount=1）"
+
+echo "=== [7/7] 正在补通用 IPv6 默认路由（路由器自身 IPv6 直出，不进 TUN） ==="
+# 背景（2026-11-27 实测）：Pig 的 IPv6 默认路由只有两条源地址路由
+# （from 240e:... via fe80::200:5eff:fe00:1b9 dev pppoe-wan），
+# 路由器自身经 TUN 发出的 IPv6（源 fdfe:dcba:9876::1，Meta TUN 网关）
+# 匹配不上源路由，只能再进 TUN，mihomo 判环路拒掉（reject loopback），
+# 受影响的是 EasyTier（UDP 11010）等本机进程。补一条通用默认路由后，
+# 本机 IPv6 直接走 pppoe-wan，LAN 标记流量仍走 TUN，不受影响。
+# 网关 fe80::200:5eff:fe00:1b9 是 PPPoE 对端链路本地地址（2026-11-27 实测值），
+# 若以后对端变化，需同步改这里。
+uci add network route6
+uci set network.@route6[-1].interface='wan'
+uci set network.@route6[-1].target='::/0'
+uci set network.@route6[-1].gateway='fe80::200:5eff:fe00:1b9'
+uci set network.@route6[-1].metric='1024'
+uci commit network
+log "通用 IPv6 默认路由已加（::/0 via fe80::200:5eff:fe00:1b9 dev pppoe-wan metric 1024）"
 
 # 让已提交的无线配置立即生效（首启时多为兜底）
 command -v wifi >/dev/null 2>&1 && wifi reload >/dev/null 2>&1 || true
