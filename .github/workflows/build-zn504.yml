@@ -167,9 +167,9 @@ jobs:
             ## PonWrt HG5585F CT (Moto-7) 定制固件
             基于上游最新底包（FullCone 2 + Tailscale 1.104.7），只编 fiberhome_hg5585f-ct 一个机型。
 
-            ### 代理：Honk（上游默认 eBPF 透明代理，Nikki 已去掉）
-            - **Honk**（honk + luci-app-honk + luci-lib-daeuniverse 界面，eBPF 透明代理）：接管全部代理。
-            - **Nikki、sing-box 已去掉**（2026-11-27 改回上游 honk 做测试）。
+            ### 代理：Momo（sing-box 透明代理，honk 已去掉）
+            - **Momo**（momo + luci-app-momo，sing-box 1.14.0 内核）：接管全部代理。
+            - **honk、Nikki 已去掉**（2026-11-27 改用 momo）。
             - **Tailscale 未编入**（上游新加的 Mesh VPN，Moto 没要；要的话说一声再加）。
 
             ### 去掉的
