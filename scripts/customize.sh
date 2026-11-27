@@ -54,18 +54,9 @@ if [ -L "./package/feeds/packages/squeezelite" ]; then
     rm -f "./package/feeds/packages/squeezelite"
 fi
 
-# 5.1 修上游 honk Makefile 的依赖包名 bug：它写的是 +v2ray-geoip +v2ray-geosite，
-# 但 feeds 里根本没有这两个包，实际包名是 v2ray-geodata（提供 geoip.dat/geosite.dat）。
-# 不修的话 make defconfig 会因为依赖不满足把 honk 静默剔掉（2026-11-27 实测教训：
-# honk 没进固件，只进了 luci-app-honk，LuCI 里因缺 /etc/config/honk 不显示）。
-if [ -f "./package/honk/Makefile" ]; then
-  sed -i 's/+v2ray-geoip +v2ray-geosite/+v2ray-geodata/g' ./package/honk/Makefile
-  echo "✅ 已修 honk Makefile 依赖：v2ray-geoip/geosite -> v2ray-geodata"
-fi
-
 # =========================================================
 # 6. Moto-7 定制软件（来自 pg-go/OpenWrt-AN758X HG5585F-Moto）
-#    Honk 上游默认代理（树内包，不用克隆；sing-box/Nikki 已去掉）。
+#    Momo（sing-box 内核，nikkinikki-org/OpenWrt-momo；honk 已去掉）。
 #    只拉取 configs/release.config 第 8 节里 =y 的那几个；
 #    feeds / 内核树已有的（natmap、upnp、iptv、usb-net、jq 等）不用拉。
 # =========================================================
@@ -194,6 +185,28 @@ rm -rf "$DF_TMP"
 rm -rf "package/feeds/luci/luci-app-dufs"
 echo "✅ 已删除 feed 版 luci-app-dufs（只留 custom 版）"
 
+# --- Momo：momo（sing-box 透明代理）+ luci-app-momo ---
+# 源：nikkinikki-org/OpenWrt-momo（与 Nikki 同一开发者；内核是 sing-box，
+# 不是 mihomo；配置是 sing-box JSON，UCI 在 /etc/config/momo）。
+# momo 2026.10.14 + luci-app-momo 1.2.2；momo 依赖 feeds 的 sing-box（>= 1.12，
+# feeds 里是 1.14.0），不依赖 honk 的 v2ray-geodata。
+# 注意：sing-box 默认构建标签里没有 with_ebpf，所以默认的 momo 用不了 sing-box 的
+# eBPF 入站；要 eBPF 得改 sing-box 的构建标签（不在本次改动范围，先按默认编）。
+MO_TMP="$(mktemp -d)/momo"
+if ! clone https://github.com/nikkinikki-org/OpenWrt-momo "$MO_TMP" main; then
+  echo "::error::nikkinikki-org/OpenWrt-momo 拉取失败，momo / luci-app-momo 会被 defconfig 剔除"
+  exit 1
+fi
+if [ ! -f "$MO_TMP/momo/Makefile" ] || [ ! -f "$MO_TMP/luci-app-momo/Makefile" ]; then
+  echo "::error::$MO_TMP/momo/Makefile 或 luci-app-momo/Makefile 不存在（上游改结构了？）"
+  exit 1
+fi
+rm -rf "$PKG_DIR/momo" "$PKG_DIR/luci-app-momo"
+cp -a "$MO_TMP/momo" "$PKG_DIR/"
+cp -a "$MO_TMP/luci-app-momo" "$PKG_DIR/"
+echo "✅ 已拷贝: momo / luci-app-momo"
+rm -rf "$MO_TMP"
+
 # ---------------------------------------------------------
 # 让新包进入索引
 #   prepare-tmpinfo 直接扫 package/ 树（scan.mk: find -L package -maxdepth 5），
@@ -229,7 +242,7 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   echo "=========================================="
   # 必装插件（configs/release.config 第 8 节里是 =y 的那几个）必须进索引，
   # 否则 defconfig 会静默剔除。任一项没进索引，直接报错退出。
-  REQUIRED="easytier-noweb luci-app-easytier luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
+  REQUIRED="easytier-noweb luci-app-easytier luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs momo luci-app-momo"
   HARD_MISS=""
   for r in $REQUIRED; do
     grep -qx "Package: $r" tmp/.packageinfo 2>/dev/null || HARD_MISS="$HARD_MISS $r"
