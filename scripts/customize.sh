@@ -7,7 +7,7 @@ set -euo pipefail
 # - QWRT Optional: Samba4, GecoosAC, WOL Ultra
 # - Kahen Essence: Temperature RPC (/sbin/tempinfo), Footstrap Theme, Clean Feeds
 # - LeoooChen Essence: Line-rate PPPoE / XG-PON offload & High Throughput Buffers
-# - Honk eBPF removed for Moto-7 (Nikki single-core); Tailscale not used
+# - Honk eBPF (upstream default, in-tree); Nikki removed; Tailscale not used
 
 echo "=== [PonWrt-ZN504] Preparing build dependencies and custom packages ==="
 
@@ -56,7 +56,7 @@ fi
 
 # =========================================================
 # 6. Moto-7 定制软件（来自 pg-go/OpenWrt-AN758X HG5585F-Moto）
-#    Nikki 单核做代理（honk/sing-box 已去掉）。
+#    Honk 上游默认代理（树内包，不用克隆；sing-box/Nikki 已去掉）。
 #    只拉取 configs/release.config 第 8 节里 =y 的那几个；
 #    feeds / 内核树已有的（natmap、upnp、iptv、usb-net、jq 等）不用拉。
 # =========================================================
@@ -98,27 +98,6 @@ for p in easytier-noweb luci-app-easytier; do
   echo "✅ 已拷贝: $p"
 done
 rm -rf "$ET_TMP"
-
-# --- Nikki：mihomo 透明代理 + nikki 服务 + luci-app-nikki 界面 ---
-# 源：nikkinikki-org/OpenWrt-nikki。包在三个子目录，拷出子目录。
-# mihomo-meta（1.19.34，PROVIDES mihomo，Go 编译 with_gvisor，TUN 同 Homi）
-# + nikki 服务 + luci-app-nikki 界面。mihomo-meta 是 Go 编译，
-# 会给固件构建增加约 10 分钟。
-NIKKI_TMP="$(mktemp -d)/nikki"
-if ! clone https://github.com/nikkinikki-org/OpenWrt-nikki "$NIKKI_TMP" main; then
-  echo "::error::nikkinikki-org/OpenWrt-nikki 拉取失败，mihomo-meta / nikki / luci-app-nikki 会被 defconfig 剔除"
-  exit 1
-fi
-for p in mihomo-meta nikki luci-app-nikki; do
-  if [ ! -f "$NIKKI_TMP/$p/Makefile" ]; then
-    echo "::error::$NIKKI_TMP/$p/Makefile 不存在（上游改结构了？）"
-    exit 1
-  fi
-  rm -rf "$PKG_DIR/$p"
-  cp -a "$NIKKI_TMP/$p" "$PKG_DIR/"
-  echo "✅ 已拷贝: $p"
-done
-rm -rf "$NIKKI_TMP"
 
 # --- Aurora 主题 + 设置页 ---
 # --- Aurora 主题 + 设置页 ---
@@ -241,7 +220,7 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   echo "=========================================="
   # 必装插件（configs/release.config 第 8 节里是 =y 的那几个）必须进索引，
   # 否则 defconfig 会静默剔除。任一项没进索引，直接报错退出。
-  REQUIRED="easytier-noweb luci-app-easytier mihomo-meta nikki luci-app-nikki luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
+  REQUIRED="easytier-noweb luci-app-easytier luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
   HARD_MISS=""
   for r in $REQUIRED; do
     grep -qx "Package: $r" tmp/.packageinfo 2>/dev/null || HARD_MISS="$HARD_MISS $r"
