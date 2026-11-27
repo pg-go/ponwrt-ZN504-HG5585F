@@ -54,6 +54,15 @@ if [ -L "./package/feeds/packages/squeezelite" ]; then
     rm -f "./package/feeds/packages/squeezelite"
 fi
 
+# 5.1 修上游 honk Makefile 的依赖包名 bug：它写的是 +v2ray-geoip +v2ray-geosite，
+# 但 feeds 里根本没有这两个包，实际包名是 v2ray-geodata（提供 geoip.dat/geosite.dat）。
+# 不修的话 make defconfig 会因为依赖不满足把 honk 静默剔掉（2026-11-27 实测教训：
+# honk 没进固件，只进了 luci-app-honk，LuCI 里因缺 /etc/config/honk 不显示）。
+if [ -f "./package/honk/Makefile" ]; then
+  sed -i 's/+v2ray-geoip +v2ray-geosite/+v2ray-geodata/g' ./package/honk/Makefile
+  echo "✅ 已修 honk Makefile 依赖：v2ray-geoip/geosite -> v2ray-geodata"
+fi
+
 # =========================================================
 # 6. Moto-7 定制软件（来自 pg-go/OpenWrt-AN758X HG5585F-Moto）
 #    Honk 上游默认代理（树内包，不用克隆；sing-box/Nikki 已去掉）。
