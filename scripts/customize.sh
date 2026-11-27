@@ -162,8 +162,12 @@ rm -rf "$NP_TMP"
 # --- luci-app-harbor-file-pro（HarborFile Pro 文件管理）---
 # 源：whzhni1/luci-app-harbor-file-pro。包在子目录 luci-app-harbor-file-pro/，
 # 拷出子目录；纯 ucode 应用无编译，依赖 rpcd/ucode 系列标准包。
+# 钉在 v1.1.5（2026-11-26 教训）：上游 main 的 2.0.0（commit 8f83d18）
+# 把 Makefile 尾部的 $(eval $(call BuildPackage,...)) 删了，只留
+# include luci.mk，结果 make prepare-tmpinfo 扫不到它，构建直接报错退出。
+# 1.1.5 是 2026-11-23 成功构建过的版本；2.0.0 上游修好前别放开。
 HB_TMP="$(mktemp -d)/harbor"
-if ! clone https://github.com/whzhni1/luci-app-harbor-file-pro "$HB_TMP" main; then
+if ! clone https://github.com/whzhni1/luci-app-harbor-file-pro "$HB_TMP" v1.1.5; then
   echo "::error::whzhni1/luci-app-harbor-file-pro 拉取失败，luci-app-harbor-file-pro 会被 defconfig 剔除"
   exit 1
 fi
