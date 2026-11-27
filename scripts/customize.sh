@@ -120,6 +120,14 @@ for p in mihomo homi luci-app-homi; do
 done
 rm -rf "$HOMI_TMP"
 
+# MMDB 与面板内置（homi r11/r12）：homi 的 Makefile 只在文件已存在时才打进包，
+# 这两个文件不进仓库；固件构建不跑 homi 自己的 build.yml，所以这里现下载。
+# 下载失败不阻塞构建（homi 运行时再下载）。
+mkdir -p "$PKG_DIR/homi/files/usr/share/homi"
+curl -fsSL --max-time 120 "https://gh-proxy.com/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb" -o "$PKG_DIR/homi/files/usr/share/homi/geoip.metadb" || echo "::warning::MMDB 下载失败，homi 运行时再下载"
+curl -fsSL --max-time 120 "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip" -o "$PKG_DIR/homi/files/usr/share/homi/dist.zip" || echo "::warning::面板下载失败，homi 运行时再下载"
+ls -lh "$PKG_DIR/homi/files/usr/share/homi/" || true
+
 # --- Aurora 主题 + 设置页 ---
 # --- Aurora 主题 + 设置页 ---
 # 源：eamonxg/luci-theme-aurora 与 eamonxg/luci-app-aurora-config（设置页，
