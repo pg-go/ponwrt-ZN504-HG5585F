@@ -7,7 +7,7 @@ set -euo pipefail
 # - QWRT Optional: Samba4, GecoosAC, WOL Ultra
 # - Kahen Essence: Temperature RPC (/sbin/tempinfo), Footstrap Theme, Clean Feeds
 # - LeoooChen Essence: Line-rate PPPoE / XG-PON offload & High Throughput Buffers
-# - Honk eBPF removed for Moto-7 (Homi single-core); Tailscale not used
+# - Honk eBPF removed for Moto-7 (Nikki single-core); Tailscale not used
 
 echo "=== [PonWrt-ZN504] Preparing build dependencies and custom packages ==="
 
@@ -56,7 +56,7 @@ fi
 
 # =========================================================
 # 6. Moto-7 定制软件（来自 pg-go/OpenWrt-AN758X HG5585F-Moto）
-#    Homi 单核做代理（honk/sing-box 已去掉）。
+#    Nikki 单核做代理（honk/sing-box 已去掉）。
 #    只拉取 configs/release.config 第 8 节里 =y 的那几个；
 #    feeds / 内核树已有的（natmap、upnp、iptv、usb-net、jq 等）不用拉。
 # =========================================================
@@ -99,34 +99,26 @@ for p in easytier-noweb luci-app-easytier; do
 done
 rm -rf "$ET_TMP"
 
-# --- Homi：mihomo 内核 + homi 服务 + luci-app-homi 界面 ---
-# 源：pg-go/luci-app-homi（用户自有项目）。包在三个子目录，拷出子目录。
-# 注意 mihomo 是 Go 编译，会给固件构建增加约 10 分钟。
-# 注意：feeds/packages 里也有个同名 mihomo，本地 package/custom/ 的包优先，
-# 用的是 pg-go 的版本（和 PonWrt Moto 构建一致）。
-HOMI_TMP="$(mktemp -d)/homi"
-if ! clone https://github.com/pg-go/luci-app-homi "$HOMI_TMP" main; then
-  echo "::error::pg-go/luci-app-homi 拉取失败，mihomo / homi / luci-app-homi 会被 defconfig 剔除"
+# --- Nikki：mihomo 透明代理 + nikki 服务 + luci-app-nikki 界面 ---
+# 源：nikkinikki-org/OpenWrt-nikki。包在三个子目录，拷出子目录。
+# mihomo-meta（1.19.34，PROVIDES mihomo，Go 编译 with_gvisor，TUN 同 Homi）
+# + nikki 服务 + luci-app-nikki 界面。mihomo-meta 是 Go 编译，
+# 会给固件构建增加约 10 分钟。
+NIKKI_TMP="$(mktemp -d)/nikki"
+if ! clone https://github.com/nikkinikki-org/OpenWrt-nikki "$NIKKI_TMP" main; then
+  echo "::error::nikkinikki-org/OpenWrt-nikki 拉取失败，mihomo-meta / nikki / luci-app-nikki 会被 defconfig 剔除"
   exit 1
 fi
-for p in mihomo homi luci-app-homi; do
-  if [ ! -f "$HOMI_TMP/$p/Makefile" ]; then
-    echo "::error::$HOMI_TMP/$p/Makefile 不存在（上游改结构了？）"
+for p in mihomo-meta nikki luci-app-nikki; do
+  if [ ! -f "$NIKKI_TMP/$p/Makefile" ]; then
+    echo "::error::$NIKKI_TMP/$p/Makefile 不存在（上游改结构了？）"
     exit 1
   fi
   rm -rf "$PKG_DIR/$p"
-  cp -a "$HOMI_TMP/$p" "$PKG_DIR/"
+  cp -a "$NIKKI_TMP/$p" "$PKG_DIR/"
   echo "✅ 已拷贝: $p"
 done
-rm -rf "$HOMI_TMP"
-
-# MMDB 与面板内置（homi r11/r12）：homi 的 Makefile 只在文件已存在时才打进包，
-# 这两个文件不进仓库；固件构建不跑 homi 自己的 build.yml，所以这里现下载。
-# 下载失败不阻塞构建（homi 运行时再下载）。
-mkdir -p "$PKG_DIR/homi/files/usr/share/homi"
-curl -fsSL --max-time 120 "https://gh-proxy.com/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb" -o "$PKG_DIR/homi/files/usr/share/homi/geoip.metadb" || echo "::warning::MMDB 下载失败，homi 运行时再下载"
-curl -fsSL --max-time 120 "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip" -o "$PKG_DIR/homi/files/usr/share/homi/dist.zip" || echo "::warning::面板下载失败，homi 运行时再下载"
-ls -lh "$PKG_DIR/homi/files/usr/share/homi/" || true
+rm -rf "$NIKKI_TMP"
 
 # --- Aurora 主题 + 设置页 ---
 # --- Aurora 主题 + 设置页 ---
@@ -249,7 +241,7 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   echo "=========================================="
   # 必装插件（configs/release.config 第 8 节里是 =y 的那几个）必须进索引，
   # 否则 defconfig 会静默剔除。任一项没进索引，直接报错退出。
-  REQUIRED="easytier-noweb luci-app-easytier mihomo homi luci-app-homi luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
+  REQUIRED="easytier-noweb luci-app-easytier mihomo-meta nikki luci-app-nikki luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
   HARD_MISS=""
   for r in $REQUIRED; do
     grep -qx "Package: $r" tmp/.packageinfo 2>/dev/null || HARD_MISS="$HARD_MISS $r"
