@@ -7,8 +7,8 @@ set -euo pipefail
 # - QWRT Optional: Samba4, GecoosAC, WOL Ultra
 # - Kahen Essence: Temperature RPC (/sbin/tempinfo), Footstrap Theme, Clean Feeds
 # - LeoooChen Essence: Line-rate PPPoE / XG-PON offload & High Throughput Buffers
-# - Nikki: mihomo proxy only; sing-box/honk removed; Tailscale not used
-# - Pig-2: Honk removed, Nikki kept as main proxy; Aurora theme; plus Pig custom packages
+# - Momo: sing-box proxy only; Nikki/honk removed; Tailscale not used
+# - Pig-2: Honk removed, Momo kept as main proxy; Aurora theme; plus Pig custom packages
 echo "=== [PonWrt-ZN504] Preparing build dependencies and custom packages ==="
 
 # 1. 确保 luci-app-airoha-npu (NPU/PPE SoC 状态监控) 处于可用状态
@@ -51,8 +51,8 @@ fi
 if [ -L "./package/feeds/packages/squeezelite" ]; then
     rm -f "./package/feeds/packages/squeezelite"
 fi
-# 6. Pig 定制软件（基于 Moto-7，honk 已去掉，Nikki 为主力代理）
-#    Nikki 做全部代理（mihomo-meta + nikki + luci-app-nikki）。
+# 6. Pig 定制软件（基于 Moto-7，honk 已去掉，Momo 为主力代理）
+#    Momo 做全部代理（sing-box + momo + luci-app-momo）。
 #    只拉取 configs/release.config 第 8 节里 =y 的那几个；
 #    feeds / 内核树已有的（natmap、upnp、iptv、usb-net、jq 等）不用拉。
 # =========================================================
@@ -95,26 +95,27 @@ for p in easytier-noweb luci-app-easytier; do
 done
 rm -rf "$ET_TMP"
 
-# --- Nikki：mihomo 透明代理 + nikki 服务 + luci-app-nikki 界面 ---
-# 源：nikkinikki-org/OpenWrt-nikki。包在三个子目录，拷出子目录。
-# mihomo-meta（1.19.34，PROVIDES mihomo，Go 编译 with_gvisor，TUN 同 Homi）
-# + nikki 服务 + luci-app-nikki 界面。mihomo-meta 是 Go 编译，
-# 会给固件构建增加约 10 分钟。
-NIKKI_TMP="$(mktemp -d)/nikki"
-if ! clone https://github.com/nikkinikki-org/OpenWrt-nikki "$NIKKI_TMP" main; then
-  echo "::error::nikkinikki-org/OpenWrt-nikki 拉取失败，mihomo-meta / nikki / luci-app-nikki 会被 defconfig 剔除"
+# --- Momo：momo（sing-box 透明代理）+ luci-app-momo ---
+# 源：nikkinikki-org/OpenWrt-momo（与 Nikki 同一开发者；内核是 sing-box，
+# 不是 mihomo；配置是 sing-box JSON，UCI 在 /etc/config/momo）。
+# momo 2026.10.14 + luci-app-momo 1.2.2；momo 依赖 feeds 的 sing-box（>= 1.12，
+# feeds 里是 1.14.0），不依赖 honk 的 v2ray-geodata。
+# 注意：sing-box 默认构建标签里没有 with_ebpf，所以默认的 momo 用不了 sing-box 的
+# eBPF 入站；要 eBPF 得改 sing-box 的构建标签（不在本次改动范围，先按默认编）。
+MO_TMP="$(mktemp -d)/momo"
+if ! clone https://github.com/nikkinikki-org/OpenWrt-momo "$MO_TMP" main; then
+  echo "::error::nikkinikki-org/OpenWrt-momo 拉取失败，momo / luci-app-momo 会被 defconfig 剔除"
   exit 1
 fi
-for p in mihomo-meta nikki luci-app-nikki; do
-  if [ ! -f "$NIKKI_TMP/$p/Makefile" ]; then
-    echo "::error::$NIKKI_TMP/$p/Makefile 不存在（上游改结构了？）"
-    exit 1
-  fi
-  rm -rf "$PKG_DIR/$p"
-  cp -a "$NIKKI_TMP/$p" "$PKG_DIR/"
-  echo "✅ 已拷贝: $p"
-done
-rm -rf "$NIKKI_TMP"
+if [ ! -f "$MO_TMP/momo/Makefile" ] || [ ! -f "$MO_TMP/luci-app-momo/Makefile" ]; then
+  echo "::error::$MO_TMP/momo/Makefile 或 luci-app-momo/Makefile 不存在（上游改结构了？）"
+  exit 1
+fi
+rm -rf "$PKG_DIR/momo" "$PKG_DIR/luci-app-momo"
+cp -a "$MO_TMP/momo" "$PKG_DIR/"
+cp -a "$MO_TMP/luci-app-momo" "$PKG_DIR/"
+echo "✅ 已拷贝: momo / luci-app-momo"
+rm -rf "$MO_TMP"
 
 # --- Aurora 主题 + 设置页 ---
 # 源：eamonxg/luci-theme-aurora 与 eamonxg/luci-app-aurora-config（设置页，
@@ -236,7 +237,7 @@ if [ -n "$(ls -A "$PKG_DIR" 2>/dev/null)" ]; then
   echo "=========================================="
   # 必装插件（configs/release.config 第 8 节里是 =y 的那几个）必须进索引，
   # 否则 defconfig 会静默剔除。任一项没进索引，直接报错退出。
-  REQUIRED="easytier-noweb luci-app-easytier mihomo-meta nikki luci-app-nikki luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
+  REQUIRED="easytier-noweb luci-app-easytier momo luci-app-momo luci-theme-aurora luci-app-aurora-config luci-app-netpath luci-app-harbor-file-pro luci-app-dufs"
   HARD_MISS=""
   for r in $REQUIRED; do
     grep -qx "Package: $r" tmp/.packageinfo 2>/dev/null || HARD_MISS="$HARD_MISS $r"
