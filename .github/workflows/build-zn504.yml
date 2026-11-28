@@ -174,7 +174,7 @@ jobs:
 
             ### Pig 定制（与 Moto-7 的区别）
             - **主题只留 Aurora**：去 ttyd、footstrap、argon、bootstrap、ddns；Vantage 已去掉。
-            - **代理用 Nikki，不用 honk**：honk 四件套已去掉，**Nikki 三件套（mihomo-meta + nikki + luci-app-nikki）在**；sing-box、v2ray-geoip/geosite 已去掉。
+            - **代理用 Momo，不用 honk/Nikki**：honk 四件套、Nikki 三件套已去掉，**Momo 三件套（sing-box + momo + luci-app-momo）在**；v2ray-geoip/geosite 已去掉。
             - **自带软件**：EasyTier、NetPath 仪表盘、Harbor 文件管理、DUFS（5006）、NATMap、UPnP、USB 网卡驱动、ntfs3。
             - **USB 3.0 + USB2 灯**：CT 的 USB2 口已焊 USB 3.0 座子，DTS 的 usb0 超速锁已删（硬盘应跑 5000M）；01_leds 已补 USB 2 灯；release.config 已加 `CONFIG_PACKAGE_kmod-usb-ledtrig-usbport=y`。
             - **网络/LAN**：LAN 172.16.9.1/24，lan1 不改 WAN、仍是 LAN 口，WiFi Pig/Pig_5G。
